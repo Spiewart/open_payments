@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "open_payments"
+version = "0.0.1"
+authors = [
+  { name="Dave Ewart", email="spiewart@gmail.com" },
+]
+description = "A package for importing, cleaning, and analyzing CMS OpenPayments datasets in Pandas."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["OpenPayments", "CMS"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy==2.0.2",
+    "pandas==2.2.3",
+    "openpyxl==3.1.5",
+    "pylint",
+    "pytest==8.3.4",
+    "build==1.2.2",
+    "flake8",
+    "black==24.10.0",
+    "pydantic==2.10.6",
+]
+
+[project.urls]
+
+[project.scripts]
+unique_credentials = "open_payments.management:unique_credentials"  # Gets all unique credentials from OpenPayments
+unique_MD_DO_payment_ids = "open_payments.management:unique_MD_DO_payment_ids"  # Gets all unique payment IDs from OpenPayments
+unique_specialties = "open_payments.management:unique_specialties"  # Gets all unique specialties from OpenPayments
+general_payment_types = "open_payments.management:general_payment_types"  # Gets all general payment types from OpenPayments
