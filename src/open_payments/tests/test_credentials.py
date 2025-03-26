@@ -49,6 +49,8 @@ class TestPaymentCredentials(unittest.TestCase):
         self.assertIn("Chiropracter", credentials_6)
 
     def test__filter_MD_DO(self):
+        payments_with_credentials = PaymentCredentials.combine_credentials(self.fake_payments)
+        
         self.assertEqual(len(self.fake_payments), 6)
-        filtered_payments = PaymentCredentials.filter_MD_DO(self.fake_payments)
+        filtered_payments = PaymentCredentials.filter_MD_DO(payments_with_credentials)
         self.assertEqual(len(filtered_payments), 5)

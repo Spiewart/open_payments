@@ -27,23 +27,26 @@ class PaymentIDs(PaymentCredentials, PaymentSpecialtys, ReadPayments):
         """Returns a DataFrame of rows from OpeyPayments payment datasets that
         have a unique provider ID (Covered_Recipient_Profile_ID)."""
 
-        self.general_payments = self.read_general_payments_csvs(
-            usecols=self.general_columns.keys(),
-            dtype={key: value[1] for key, value in self.general_columns.items()},
-        )
-        self.general_payments = self.update_payments("general")
-
-        self.ownership_payments = self.read_ownership_payments_csvs(
-            usecols=self.ownership_columns.keys(),
-            dtype={key: value[1] for key, value in self.ownership_columns.items()},
-        )
-        self.ownership_payments = self.update_payments("ownership")
-
-        self.research_payments = self.read_research_payments_csvs(
-            usecols=self.research_columns.keys(),
-            dtype={key: value[1] for key, value in self.research_columns.items()},
-        )
-        self.research_payments = self.update_payments("research")
+        for payment_class in self.payment_classes:
+            setattr(
+                self,
+                f"{payment_class}_payments",getattr(self, f"read_{payment_class}_payments_csvs")(
+                    usecols=getattr(self, f"{payment_class}_columns").keys(),
+                    dtype={key: value[1] for key, value in getattr(self, f"{payment_class}_columns").items()},
+                )
+            )
+            if hasattr(self, f"update_{payment_class}_payments"):
+                setattr(
+                    self,
+                    f"{payment_class}_payments",
+                    getattr(self, f"update_{payment_class}_payments")()
+            )
+            else:
+                setattr(
+                    self,
+                    f"{payment_class}_payments",
+                    getattr(self, "update_payments")(payment_class)
+            )
 
         all_payments = pd.concat([
             self.general_payments, self.ownership_payments, self.research_payments
@@ -53,12 +56,20 @@ class PaymentIDs(PaymentCredentials, PaymentSpecialtys, ReadPayments):
         # the three different payment types.
         all_payments = self.remove_duplicate_ids(all_payments)
 
+        all_payments.drop("payment_class", axis=1, inplace=True)
+        
         return all_payments
 
     def unique_MD_DO_payment_ids(
         self,
-        unique_payment_ids: pd.DataFrame,
+        unique_payment_ids: Union[pd.DataFrame, None] = None,
     ) -> pd.DataFrame:
+        """Returns a DataFrame of rows from OpeyPayments payment datasets that
+        have a unique provider ID (Covered_Recipient_Profile_ID) and are either
+        MDs or DOs."""
+
+        if unique_payment_ids is None:
+            unique_payment_ids = self.unique_payment_ids()
 
         MD_DO_ids = self.filter_MD_DO(unique_payment_ids)
 
@@ -72,8 +83,23 @@ class PaymentIDs(PaymentCredentials, PaymentSpecialtys, ReadPayments):
         DataFrame."""
         payments: pd.DataFrame = getattr(self, f"{payment_class}_payments")
         payments = super().update_payments(payment_class)
-        payments = self.remove_duplicate_ids(payments)
+        payments = self.post_update_payments_mod(payments)
         return payments
+
+    def post_update_payments_mod(self, payments: pd.DataFrame) -> pd.DataFrame:
+        """Method that is called after the update_payments method."""
+
+        payments = self.remove_duplicate_ids(payments)
+        payments.insert(1, "specialtys", payments.apply(PaymentSpecialtys.specialtys, axis=1))
+        payments = self.drop_individual_specialtys(payments)
+        payments = self.combine_credentials(payments)
+        return payments
+
+    def update_ownership_payments(self) -> pd.DataFrame:
+        """Updates ownership payments and returns the updated DataFrame."""
+        self.ownership_payments = super().update_ownership_payments()
+        self.ownership_payments = self.post_update_payments_mod(self.ownership_payments)
+        return self.ownership_payments
 
     @staticmethod
     def remove_duplicate_ids(df: pd.DataFrame) -> pd.DataFrame:
@@ -126,3 +152,35 @@ class PaymentIDs(PaymentCredentials, PaymentSpecialtys, ReadPayments):
             self.general_columns
         )
         return cols
+
+
+class ConflictedPaymentIDs(PaymentIDs):
+
+    def __init__(
+        self,
+        conflicteds: pd.DataFrame,
+        payment_ids: Union[pd.DataFrame, None],
+        *args,
+        **kwargs,
+    ):
+        """Overwritten to add a conflicteds argument / attribute.
+        Conflicteds is a DataFrame with the following columns:
+        -first_name: str
+        -last_name: str
+        -middle_initial_1: str
+        -middle_initial_2: str
+        -middle_name_1: str
+        -middle_name_2: str
+        -credentials: array[str]
+        -specialtys: array[str]
+        -citystates: array[str]
+        """
+        super().__init__(*args, **kwargs)
+        self.conflicteds = conflicteds
+        self.payment_ids = payment_ids
+
+    def conflicteds_payments_ids(self) -> pd.DataFrame:
+        """Method that returns a DataFrame of payment IDs for conflicteds."""
+
+        if not self.payment_ids:
+            self.payment_ids = self.unique_payment_ids()

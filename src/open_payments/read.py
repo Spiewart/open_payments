@@ -169,8 +169,27 @@ class ReadPayments:
         """Renames columns for the payment class DataFrame."""
         payments: pd.DataFrame = getattr(self, f"{payment_class}_payments")
 
+        payments.insert(1, "payment_class", payment_class)
+        
         payments.rename(
             columns={key: val[0] for key, val in getattr(self, f"{payment_class}_columns").items()},
             inplace=True,
         )
         return payments
+
+    def update_ownership_payments(self) -> pd.DataFrame:
+        """Calls the update_payments method but also adds a null payment_id
+        column and adds the value_of_interest to the payment_amount column
+        and drops the value_of_interest column."""
+        self.ownership_payments.insert(0, "payment_id", None)
+
+        self.ownership_payments = self.update_payments("ownership")
+
+        self.ownership_payments["payment_amount"] = self.ownership_payments.apply(
+            lambda x: x["value_of_interest"] + x["payment_amount"],
+            axis=1,
+        )
+
+        self.ownership_payments.drop(columns=["value_of_interest"], inplace=True)
+
+        return self.ownership_payments

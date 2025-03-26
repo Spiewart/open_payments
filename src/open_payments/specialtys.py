@@ -121,7 +121,16 @@ class PaymentSpecialtys(ReadPayments):
 
         specialtys = specialtys.str.split("|", expand=True)
 
-        specialtys.columns = ["provider_type", "specialty", "subspecialty"]
+        # TODO: fix, not elegant, should be done with a better regex pattern
+        if len(specialtys.columns) == 1:
+            specialtys.columns = ["provider_type"]
+            specialtys.insert(1, "specialty", None)
+            specialtys.insert(2, "subspecialty", None)
+        elif len(specialtys.columns) == 2:
+            specialtys.columns = ["provider_type", "specialty"]
+            specialtys.insert(2, "subspecialty", None)
+        else:
+            specialtys.columns = ["provider_type", "specialty", "subspecialty"]
 
         return specialtys
 
@@ -131,14 +140,15 @@ class PaymentSpecialtys(ReadPayments):
         specialty/subspecialty pairs."""
 
         specialtys = payment[
-            ["specialty_1",
-            "specialty_2",
-            "specialty_3",
-            "specialty_4",
-            "specialty_5",
-            "specialty_6",]
+            [
+                "specialty_1",
+                "specialty_2",
+                "specialty_3",
+                "specialty_4",
+                "specialty_5",
+                "specialty_6",
+            ]
         ]
-
 
         specialtys = cls.get_subspecialtys(specialtys)
 
@@ -148,3 +158,21 @@ class PaymentSpecialtys(ReadPayments):
         specialtys.reset_index(drop=True, inplace=True)
 
         return specialtys
+
+    @staticmethod
+    def drop_individual_specialtys(payments: pd.DataFrame) -> pd.DataFrame:
+        """Removes specialty_1-6 columns from the DataFrame."""
+
+        payments.drop(
+            columns=[
+                "specialty_1",
+                "specialty_2",
+                "specialty_3",
+                "specialty_4",
+                "specialty_5",
+                "specialty_6",
+            ],
+            inplace=True,
+        )
+
+        return payments

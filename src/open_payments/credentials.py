@@ -108,20 +108,26 @@ class PaymentCredentials(ReadPayments):
     def filter_MD_DO(df: pd.DataFrame) -> pd.DataFrame:
         """Method that filters the DataFrame by MD and DO credentials."""
 
-        def credential_match(credential: Union[str, None]) -> bool:
-            return pd.notna(credential) and (
-                credential == "Medical Doctor" or credential == "Doctor of Osteopathy"
-            )
+        def payment_in_credentials(credentials: pd.Series) -> bool:
+            return any(cred in credentials for cred in ["Medical Doctor", "Doctor of Osteopathy"])
 
-        df = df[
-            df["credential_1"].apply(credential_match)
-            | df["credential_2"].apply(credential_match)
-            | df["credential_3"].apply(credential_match)
-            | df["credential_4"].apply(credential_match)
-            | df["credential_5"].apply(credential_match)
-            | df["credential_6"].apply(credential_match)
-        ]
-        return df
+        MD_DO_ids = df[df["credentials"].apply(payment_in_credentials)]
+
+        return MD_DO_ids
+    
+    @classmethod
+    def combine_credentials(cls, payments: pd.DataFrame) -> pd.DataFrame:
+        """Method that combines the credentials into a Series."""
+
+        payments.insert(
+            1,
+            "credentials",
+            payments.apply(cls.credentials, axis=1)
+        )
+        print(payments.columns)
+        payments = cls.drop_individual_credentials(payments)
+
+        return payments
 
     @staticmethod
     def credentials(payment: pd.Series) -> pd.Series:
@@ -137,3 +143,13 @@ class PaymentCredentials(ReadPayments):
         credentials = credentials.unique()
 
         return credentials
+
+    @staticmethod
+    def drop_individual_credentials(payments: pd.DataFrame) -> pd.DataFrame:
+
+        payments = payments.drop([
+            "credential_1", "credential_2", "credential_3",
+            "credential_4", "credential_5", "credential_6"
+        ], axis=1)
+
+        return payments
