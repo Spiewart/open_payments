@@ -1,7 +1,7 @@
 from .credentials import PaymentCredentials
 from .ids import PaymentIDs
 from .specialtys import PaymentSpecialtys
-from .types import PaymentTypes
+from .payment_types import PaymentTypes
 
 
 def unique_credentials() -> None:

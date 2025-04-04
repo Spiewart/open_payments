@@ -106,3 +106,22 @@ class Payments(ReadPayments):
             "Applicable_Manufacturer_or_Applicable_GPO_Making_Payment_Name": ("payment_entity", str),
             "Record_ID": ("payment_id", "Int64"),
         }
+
+    def update_ownership_payments(self) -> pd.DataFrame:
+        """Adds a null payment_id column and adds the value_of_interest
+        to the payment_amount column and drops the value_of_interest
+        column. This is because the ownership OpenPayments dataset
+        has different column names than the general and research datasets."""
+
+        self.ownership_payments.insert(0, "payment_id", None)
+
+        self.ownership_payments = super().update_payments("ownership")
+
+        self.ownership_payments["payment_amount"] = self.ownership_payments.apply(
+            lambda x: x["value_of_interest"] + x["payment_amount"],
+            axis=1,
+        )
+
+        self.ownership_payments.drop(columns=["value_of_interest"], inplace=True)
+
+        return self.ownership_payments

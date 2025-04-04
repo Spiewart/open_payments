@@ -1,9 +1,26 @@
-
+import enum
 import pandas as pd
 from typing import Union
 
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
+
+
+class Credentials(enum.StrEnum):
+    """Enum class for credentials."""
+
+    MEDICAL_DOCTOR = "Medical Doctor"
+    DOCTOR_OF_DENTISTRY = "Doctor of Dentistry"
+    DOCTOR_OF_OSTEOPATHY = "Doctor of Osteopathy"
+    DOCTOR_OF_OPTOMETRY = "Doctor of Optometry"
+    CHIROPRACTOR = "Chiropractor"
+    DOCTOR_OF_PODIATRIC_MEDICINE = "Doctor of Podiatric Medicine"
+    NURSE_PRACTITIONER = "Nurse Practitioner"
+    PHYSICIAN_ASSISTANT = "Physician Assistant"
+    CERTIFIED_REGISTERED_NURSE_ANAESTHETIST = "Certified Registered Nurse Anesthetist"
+    CLINICAL_NURSE_SPECIALIST = "Clinical Nurse Specialist"
+    CERTIFIED_NURSE_MIDWIFE = "Certified Nurse-Midwife"
+    ANESTHESIOLOGIST_ASSISTANT = "Anesthesiologist Assistant"
 
 
 class PaymentCredentials(ReadPayments):
@@ -109,28 +126,28 @@ class PaymentCredentials(ReadPayments):
         """Method that filters the DataFrame by MD and DO credentials."""
 
         def payment_in_credentials(credentials: pd.Series) -> bool:
-            return any(cred in credentials for cred in ["Medical Doctor", "Doctor of Osteopathy"])
+            return any(cred in credentials for cred in [Credentials.MEDICAL_DOCTOR, Credentials.DOCTOR_OF_OSTEOPATHY])
 
         MD_DO_ids = df[df["credentials"].apply(payment_in_credentials)]
 
         return MD_DO_ids
-    
+
     @classmethod
-    def combine_credentials(cls, payments: pd.DataFrame) -> pd.DataFrame:
+    def credentials(cls, payments: pd.DataFrame) -> pd.DataFrame:
         """Method that combines the credentials into a Series."""
 
         payments.insert(
             1,
             "credentials",
-            payments.apply(cls.credentials, axis=1)
+            payments.apply(cls.create_credentials, axis=1)
         )
-        print(payments.columns)
+
         payments = cls.drop_individual_credentials(payments)
 
         return payments
 
     @staticmethod
-    def credentials(payment: pd.Series) -> pd.Series:
+    def create_credentials(payment: pd.Series) -> pd.Series:
         """Aggregates the credentials into a Series."""
 
         credentials = payment[
@@ -153,3 +170,16 @@ class PaymentCredentials(ReadPayments):
         ], axis=1)
 
         return payments
+
+    def update_ownership_payments(self) -> pd.DataFrame:
+        """Overwritten to add credential_2-6 to the DataFrame, as they
+        won't be present after renaming pre-existing columns."""
+
+        self.ownership_payments["credential_2"] = None
+        self.ownership_payments["credential_3"] = None
+        self.ownership_payments["credential_4"] = None
+        self.ownership_payments["credential_5"] = None
+        self.ownership_payments["credential_6"] = None
+        self.ownership_payments = super().update_ownership_payments()
+
+        return self.ownership_payments
