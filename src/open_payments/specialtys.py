@@ -229,7 +229,7 @@ class PaymentSpecialtys(ReadPayments):
     def drop_individual_specialtys(payments: pd.DataFrame) -> pd.DataFrame:
         """Removes specialty_1-6 columns from the DataFrame."""
 
-        payments.drop(
+        payments = payments.drop(
             columns=[
                 "specialty_1",
                 "specialty_2",
@@ -238,7 +238,6 @@ class PaymentSpecialtys(ReadPayments):
                 "specialty_5",
                 "specialty_6",
             ],
-            inplace=True,
         )
 
         return payments

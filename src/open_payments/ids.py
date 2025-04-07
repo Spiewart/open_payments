@@ -170,8 +170,10 @@ class PaymentIDFilters(StrEnum):
     SUBSPECIALTY = "SUBSPECIALTY"
     FULLSPECIALTY = "FULLSPECIALTY"  # Matches specialty and subspecialty
     MIDDLE_INITIAL = "MIDDLE_INITIAL"
+    MIDDLENAME = "MIDDLENAME"
     CITY = "CITY"
     STATE = "STATE"
+    CITYSTATE = "CITYSTATE"  # Matches city and state
 
 
 class Unmatcheds(StrEnum):
@@ -208,8 +210,9 @@ class ConflictedPaymentIDs(PaymentIDs):
         *args,
         **kwargs,
     ):
-        """Overwritten to add a conflicteds argument / attribute.
-        conflicteds is a DataFrame with the following columns:
+        """Filters OpenPayments profile IDs by .
+
+        conflicteds[DataFrame]:
         -provider_pk: Int64
         -first_name: str
         -last_name: str
@@ -221,16 +224,15 @@ class ConflictedPaymentIDs(PaymentIDs):
         -specialtys: array[Specialtys]
         -citystates: array[str]
 
-        payment_ids is a DataFrame with the following columns:
+        payment_ids[DataFrame]:
         -profile_id: Int64
-        -npi: Int64
         -first_name: str
         -middle_name: str
         -last_name: str
         -specialtys: array[Specialtys]
         -credentials: array[Credentials]
-        -city: str
-        -states: array[str]
+        -citystates: array[str]
+
         """
         super().__init__(*args, **kwargs)
         self.conflicteds = conflicteds
@@ -238,6 +240,7 @@ class ConflictedPaymentIDs(PaymentIDs):
         self.conflicteds = self.add_conflict_prefix(self.conflicteds)
         self.num_conflicteds = self.conflicteds["conflict_provider_pk"].nunique()
         self.payment_ids = payment_ids
+        self.payment_ids_x_conflicteds = pd.DataFrame()
         self.unmatched = pd.DataFrame()
         self.unique_ids = pd.DataFrame()
 
@@ -262,28 +265,23 @@ class ConflictedPaymentIDs(PaymentIDs):
         """Method that returns a DataFrame of payment IDs for conflicteds."""
 
         if filters is None:
-            filters = [
-                PaymentIDFilters.LASTNAME,
-                PaymentIDFilters.FIRSTNAME,
-                PaymentIDFilters.CREDENTIAL,
-                PaymentIDFilters.SPECIALTY,
-                PaymentIDFilters.SUBSPECIALTY,
-                PaymentIDFilters.FULLSPECIALTY,
-            ]
+            filters = PaymentIDFilters.__members__.values()
 
         if self.payment_ids is None:
             self.payment_ids = self.unique_payment_ids()
 
-        self.payment_ids = self.merge_by_last_name(
-            payment_ids=self.payment_ids,
-            conflicteds=self.conflicteds,
+        self.payment_ids_x_conflicteds = pd.concat(
+            [self.payment_ids_x_conflicteds, self.merge_by_last_name(
+                payment_ids=self.payment_ids,
+                conflicteds=self.conflicteds,
+            )]
         )
 
         # Filter out conflicteds that have no last name match
         # in OpenPayments
         self.update_unmatched(
-            unmatcheds=self.payment_ids[
-                self.payment_ids["profile_id"].isna()
+            unmatcheds=self.payment_ids_x_conflicteds[
+                self.payment_ids_x_conflicteds["profile_id"].isna()
             ],
             unmatched=Unmatcheds.NOLASTNAME,
         )
@@ -291,20 +289,19 @@ class ConflictedPaymentIDs(PaymentIDs):
         filter_combos = get_list_of_combinations(filters)
 
         for filter_combo in filter_combos:
-            if self.payment_ids.empty:
+            if self.payment_ids_x_conflicteds.empty:
                 break
             self.filter_and_update_unique_ids(
-                payment_ids_x_conflicteds=self.payment_ids,
+                payment_ids_x_conflicteds=self.payment_ids_x_conflicteds,
                 id_filters=filter_combo,
             )
             self.check_sanity()
 
         # TODO: Check all the LASTNAME matches for secondary matches with other columns
-        return self.payment_ids
+        return self.payment_ids_x_conflicteds
 
-    @classmethod
+    @staticmethod
     def merge_by_last_name(
-        cls,
         payment_ids: pd.DataFrame,
         conflicteds: pd.DataFrame,
     ) -> pd.DataFrame:
@@ -365,7 +362,7 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         if not filtered_ids.empty:
             new_unique_ids = self.extract_unique_ids(
-                payments_x_conflicteds=filtered_ids,
+                payment_ids_x_conflicteds=filtered_ids,
             )
             self.update_ids(
                 new_unique_ids=new_unique_ids,
@@ -378,16 +375,16 @@ class ConflictedPaymentIDs(PaymentIDs):
     @classmethod
     def extract_unique_ids(
         cls,
-        payments_x_conflicteds: pd.DataFrame,
+        payment_ids_x_conflicteds: pd.DataFrame,
     ) -> pd.DataFrame:
         """Extracts unique IDs from the payments x conflicteds DataFrame
         and returns a DataFrame with the unique IDs."""
 
         unique_ids = pd.DataFrame()
 
-        for provider_pk in payments_x_conflicteds["conflict_provider_pk"].unique():
-            provider_rows = payments_x_conflicteds[
-                payments_x_conflicteds["conflict_provider_pk"] == provider_pk
+        for provider_pk in payment_ids_x_conflicteds["conflict_provider_pk"].unique():
+            provider_rows = payment_ids_x_conflicteds[
+                payment_ids_x_conflicteds["conflict_provider_pk"] == provider_pk
             ]
 
             if len(provider_rows) == 1 and provider_rows["profile_id"].notna().any():
@@ -409,9 +406,9 @@ class ConflictedPaymentIDs(PaymentIDs):
         self.unique_ids = pd.concat([self.unique_ids, new_unique_ids])
 
         if not new_unique_ids.empty:
-            self.payment_ids = self.payment_ids.drop(
-                self.payment_ids[
-                    self.payment_ids["conflict_provider_pk"].isin(new_unique_ids["conflict_provider_pk"])
+            self.payment_ids_x_conflicteds = self.payment_ids_x_conflicteds.drop(
+                self.payment_ids_x_conflicteds[
+                    self.payment_ids_x_conflicteds["conflict_provider_pk"].isin(new_unique_ids["conflict_provider_pk"])
                 ].index
             )
 
@@ -433,8 +430,8 @@ class ConflictedPaymentIDs(PaymentIDs):
             [self.unmatched, unmatcheds]
         )
 
-        self.payment_ids = self.payment_ids[
-            self.payment_ids["profile_id"].notna()
+        self.payment_ids_x_conflicteds = self.payment_ids_x_conflicteds[
+            self.payment_ids_x_conflicteds["profile_id"].notna()
         ]
 
     @staticmethod
@@ -463,7 +460,10 @@ class ConflictedPaymentIDs(PaymentIDs):
             (
                 (self.unmatched["provider_pk"].nunique(dropna=True) if not self.unmatched.empty else 0)
                 + (len(self.unique_ids) if not self.unique_ids.empty else 0)
-                + (self.payment_ids["conflict_provider_pk"].nunique(dropna=True) if not self.payment_ids.empty else 0)
+                + (
+                    self.payment_ids_x_conflicteds["conflict_provider_pk"].nunique(dropna=True)
+                    if not self.payment_ids_x_conflicteds.empty else 0
+                )
             )
         )
 
@@ -586,7 +586,6 @@ class ConflictedPaymentIDs(PaymentIDs):
         payment_specialtys: Union[list[PaymentSpecialtys], None],
         conflict_specialtys: Union[list[PaymentSpecialtys], None],
     ) -> bool:
-        """Checks if there is a specialty conflict."""
 
         return any(
             spec.subspecialty in [
@@ -618,7 +617,6 @@ class ConflictedPaymentIDs(PaymentIDs):
         payment_specialtys: Union[list[PaymentSpecialtys], None],
         conflict_specialtys: Union[list[PaymentSpecialtys], None],
     ) -> bool:
-        """Checks if there is a specialty conflict."""
 
         return any(
             spec in [
@@ -637,9 +635,196 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         return payment_ids_x_conflicteds[payment_ids_x_conflicteds.apply(
             lambda row: (
-                pd.notna(row["city"])
-                and pd.notna(row["conflict_city"])
-                and row["city"] == row["conflict_city"]
+                cls.payment_conflict_city_match(
+                    payment_citystates=row["citystates"],
+                    conflict_citystates=row["conflict_citystates"],
+                )
             ),
             axis=1,
         )]
+
+    @classmethod
+    def payment_conflict_city_match(
+        cls,
+        payment_citystates: Union[list[PaymentSpecialtys], None],
+        conflict_citystates: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+
+        return any(
+            citystate.city in [
+                citystate.city for citystate in payment_citystates
+                if pd.notna(citystate)
+            ] for citystate in [
+                citystate for citystate in conflict_citystates
+                if pd.notna(citystate)
+            ]
+        ) if (
+            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
+            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
+        ) else False
+
+    @staticmethod
+    def empty_array_or_nan_can_be_iterated(
+        citystates: Union[list[PaymentSpecialtys], float]
+    ) -> bool:
+        """Checks if the citystates can be iterated over."""
+
+        return isinstance(citystates, list) and citystates
+
+    @classmethod
+    def filter_by_state(
+        cls,
+        payment_ids_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters by state."""
+
+        return payment_ids_x_conflicteds[payment_ids_x_conflicteds.apply(
+            lambda row: (
+                cls.payment_conflict_state_match(
+                    payment_citystates=row["citystates"],
+                    conflict_citystates=row["conflict_citystates"],
+                )
+            ),
+            axis=1,
+        )]
+
+    @classmethod
+    def payment_conflict_state_match(
+        cls,
+        payment_citystates: Union[list[PaymentSpecialtys], None],
+        conflict_citystates: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+
+        return any(
+            citystate.state in [
+                citystate.state for citystate in payment_citystates
+                if pd.notna(citystate)
+            ] for citystate in [
+                citystate for citystate in conflict_citystates
+                if pd.notna(citystate)
+            ]
+        ) if (
+            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
+            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
+        ) else False
+
+    @classmethod
+    def filter_by_citystate(
+        cls,
+        payment_ids_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters by city and state."""
+
+        return payment_ids_x_conflicteds[payment_ids_x_conflicteds.apply(
+            lambda row: (
+                cls.payment_conflict_citystate_match(
+                    payment_citystates=row["citystates"],
+                    conflict_citystates=row["conflict_citystates"],
+                )
+            ),
+            axis=1,
+        )]
+
+    @classmethod
+    def payment_conflict_citystate_match(
+        cls,
+        payment_citystates: Union[list[PaymentSpecialtys], None],
+        conflict_citystates: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+
+        return any(
+            citystate in [
+                citystate for citystate in payment_citystates
+                if pd.notna(citystate)
+            ] for citystate in [
+                citystate for citystate in conflict_citystates
+                if pd.notna(citystate)
+            ]
+        ) if (
+            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
+            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
+        ) else False
+
+    @classmethod
+    def filter_by_middle_initial(
+        cls,
+        payment_ids_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters by middle initial."""
+
+        return payment_ids_x_conflicteds[payment_ids_x_conflicteds.apply(
+            lambda row: cls.middle_initial_match(
+                conflicted_middle_initial_1=row["conflict_middle_initial_1"],
+                conflicted_middle_initial_2=row["conflict_middle_initial_2"],
+                conflicted_middle_name_1=row["conflict_middle_name_1"],
+                conflicted_middle_name_2=row["conflict_middle_name_2"],
+                payment_middle_name=row["middle_name"],
+                ),
+            axis=1,
+        )]
+
+    @staticmethod
+    def middle_initial_match(
+        conflicted_middle_initial_1: Union[str, None],
+        conflicted_middle_initial_2: Union[str, None],
+        conflicted_middle_name_1: Union[str, None],
+        conflicted_middle_name_2: Union[str, None],
+        payment_middle_name: Union[str, None],
+    ) -> bool:
+        """Checks if the middle initial matches."""
+
+        return pd.notna(payment_middle_name) and (
+            (
+                pd.notna(conflicted_middle_initial_1)
+                and payment_middle_name[0].lower() == conflicted_middle_initial_1.lower()
+            )
+            or (
+                pd.notna(conflicted_middle_initial_2)
+                and payment_middle_name[0].lower() == conflicted_middle_initial_2.lower()
+            )
+            or (
+                pd.notna(conflicted_middle_name_1)
+                and payment_middle_name.lower() == conflicted_middle_name_1[0].lower()
+            )
+            or (
+                pd.notna(conflicted_middle_name_2)
+                and payment_middle_name.lower() == conflicted_middle_name_2[0].lower()
+            )
+        )
+
+    @classmethod
+    def filter_by_middlename(
+        cls,
+        payment_ids_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters by middle name."""
+
+        return payment_ids_x_conflicteds[payment_ids_x_conflicteds.apply(
+            lambda row: (
+                cls.middlename_match(
+                    conflicted_middle_name_1=row["conflict_middle_name_1"],
+                    conflicted_middle_name_2=row["conflict_middle_name_2"],
+                    payment_middle_name=row["middle_name"],
+                )
+            ),
+            axis=1,
+        )]
+
+    @staticmethod
+    def middlename_match(
+        conflicted_middle_name_1: Union[str, None],
+        conflicted_middle_name_2: Union[str, None],
+        payment_middle_name: Union[str, None],
+    ) -> bool:
+        """Checks if the middle name matches."""
+
+        return pd.notna(payment_middle_name) and (
+            (
+                pd.notna(conflicted_middle_name_1)
+                and payment_middle_name.lower() == conflicted_middle_name_1.lower()
+            )
+            or (
+                pd.notna(conflicted_middle_name_2)
+                and payment_middle_name.lower() == conflicted_middle_name_2.lower()
+            )
+        )
