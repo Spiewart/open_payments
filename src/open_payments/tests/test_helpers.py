@@ -10,7 +10,7 @@ class TestFileSuffix(unittest.TestCase):
             years=2020,
             payment_classes=["research", "ownership"]
         )
-        self.assertEqual(suffix, "research_ownership_2020")
+        self.assertEqual(suffix, "_research_ownership_2020")
 
     def test__no_suffix_required(self):
         suffix = get_file_suffix(

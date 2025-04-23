@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 
-from ..credentials import PaymentCredentials
+from ..credentials import Credentials, PaymentCredentials
 from ..read import ReadPayments
 
 
@@ -10,7 +10,7 @@ class TestPaymentCredentials(unittest.TestCase):
         self.fake_payments = pd.DataFrame(
             {
                 "credential_1": ["Medical Doctor", None, "Medical Doctor", "Medical Doctor", "Doctor of Osteopathy", "Chiropractor"],
-                "credential_2": [None, "Doctor of Osteopathy", "Doctor of Osteopathy", "CRNA", "Doctor of Osteopathy", None],
+                "credential_2": [None, "Doctor of Osteopathy", "Doctor of Osteopathy", "Certified Registered Nurse Anesthetist", "Doctor of Osteopathy", None],
                 "credential_3": ["Medical Doctor", "Nurse Practitioner", "Medical Doctor", None, "Doctor of Osteopathy", None],
                 "credential_4": ["Medical Doctor", "Doctor of Osteopathy", None, "Medical Doctor", "Physician Assistant", None],
                 "credential_5": ["Medical Doctor", "Doctor of Osteopathy", "Medical Doctor", "Nurse Practitioner", None, None],
@@ -37,38 +37,41 @@ class TestPaymentCredentials(unittest.TestCase):
 
     def test__credentials(self):
 
-        credentials_1 = PaymentCredentials.credentials(self.fake_payments.iloc[0])
+        self.fake_payments = PaymentCredentials.credentials(self.fake_payments)
+
+        payment_1 = self.fake_payments.iloc[0]
+        credentials_1 = payment_1["credentials"]
         self.assertEqual(len(credentials_1), 1)
-        self.assertIn("Medical Doctor", credentials_1)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, credentials_1)
 
-        credentials_2 = PaymentCredentials.credentials(self.fake_payments.iloc[1])
+        payment_2 = self.fake_payments.iloc[1]
+        credentials_2 = payment_2["credentials"]
         self.assertEqual(len(credentials_2), 2)
-        self.assertIn("Doctor of Osteopathy", credentials_2)
-        self.assertIn("Nurse Practitioner", credentials_2)
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, credentials_2)
+        self.assertIn(Credentials.NURSE_PRACTITIONER, credentials_2)
 
-        credentials_3 = PaymentCredentials.credentials(self.fake_payments.iloc[2])
+        payment_3 = self.fake_payments.iloc[2]
+        credentials_3 = payment_3["credentials"]
         self.assertEqual(len(credentials_3), 2)
-        self.assertIn("Medical Doctor", credentials_3)
-        self.assertIn("Doctor of Osteopathy", credentials_3)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, credentials_3)
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, credentials_3)
 
-        credentials_4 = PaymentCredentials.credentials(self.fake_payments.iloc[3])
+        payment_4 = self.fake_payments.iloc[3]
+        credentials_4 = payment_4["credentials"]
         self.assertEqual(len(credentials_4), 3)
-        self.assertIn("Medical Doctor", credentials_4)
-        self.assertIn("CRNA", credentials_4)
-        self.assertIn("Nurse Practitioner", credentials_4)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, credentials_4)
+        self.assertIn(Credentials.CERTIFIED_REGISTERED_NURSE_ANAESTHETIST, credentials_4)
+        self.assertIn(Credentials.NURSE_PRACTITIONER, credentials_4)
 
-        credentials_5 = PaymentCredentials.credentials(self.fake_payments.iloc[4])
+        payment_5 = self.fake_payments.iloc[4]
+        credentials_5 = payment_5["credentials"]
         self.assertEqual(len(credentials_5), 2)
-        self.assertIn("Doctor of Osteopathy", credentials_5)
-        self.assertIn("Physician Assistant", credentials_5)
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, credentials_5)
+        self.assertIn(Credentials.PHYSICIAN_ASSISTANT, credentials_5)
 
-        credentials_6 = PaymentCredentials.credentials(self.fake_payments.iloc[5])
+        payment_6 = self.fake_payments.iloc[5]
+        credentials_6 = payment_6["credentials"]
         self.assertEqual(len(credentials_6), 1)
-        self.assertIn("Chiropractor", credentials_6)
-
-    def test__filter_MD_DO(self):
-        payments_with_credentials = PaymentCredentials.combine_credentials(self.fake_payments)
-
-        self.assertEqual(len(self.fake_payments), 6)
-        filtered_payments = PaymentCredentials.filter_MD_DO(payments_with_credentials)
-        self.assertEqual(len(filtered_payments), 5)
+        self.assertIn(Credentials.CHIROPRACTOR, credentials_6)
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, credentials_2)
+        self.assertIn(Credentials.NURSE_PRACTITIONER, credentials_2)

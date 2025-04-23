@@ -35,6 +35,6 @@ dependencies = [
 
 [project.scripts]
 unique_credentials = "open_payments.management:unique_credentials"  # Gets all unique credentials from OpenPayments
-unique_MD_DO_payment_ids = "open_payments.management:unique_MD_DO_payment_ids"  # Gets all unique payment IDs from OpenPayments
+MD_DO_2023_general_payments = "open_payments.management:MD_DO_2023_general_payments"  # Gets all MD/DO 2023 general payments
 unique_specialties = "open_payments.management:unique_specialties"  # Gets all unique specialties from OpenPayments
 general_payment_types = "open_payments.management:general_payment_types"  # Gets all general payment types from OpenPayments

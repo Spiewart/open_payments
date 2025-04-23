@@ -117,3 +117,9 @@ class PaymentTypes(ReadPayments):
         unique_forms_of_payment.reset_index(drop=True, inplace=True)
 
         return unique_forms_of_payment
+
+
+def general_payment_types() -> None:
+    """Creates an Excel file containing unique payment types."""
+
+    PaymentTypes(payment_classes="general").create_payment_types_excel()

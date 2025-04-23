@@ -1,9 +1,10 @@
-from pydantic import BaseModel
+import re
 from enum import StrEnum
 from typing import Union
 
 import pandas as pd
-import re
+from pydantic import BaseModel, model_validator
+from typing_extensions import Self
 
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
@@ -12,11 +13,17 @@ from .read import ReadPayments
 class Specialtys(BaseModel):
     """Class that contains the specialtys of a payment."""
 
-    specialty: str
+    specialty: str | None = None
     subspecialty: str | None = None
 
     def __str__(self) -> str:
         return f"{self.specialty}|{self.subspecialty}"
+
+    @model_validator(mode="after")
+    def validate_specialty_subspecialty(self) -> Self:
+        if self.specialty is None and self.subspecialty is None:
+            raise ValueError("Both specialty and subspecialty cannot be None.")
+        return self
 
 
 class PaymentSpecialtys(ReadPayments):
@@ -255,3 +262,27 @@ class PaymentSpecialtys(ReadPayments):
         self.ownership_payments = super().update_ownership_payments()
 
         return self.ownership_payments
+
+
+def convert_specialtys(specialtys: str) -> list[Specialtys]:
+    """Convert a string representation of a list of Specialtys objects
+    to a list of Specialtys objects."""
+
+    converted = []
+
+    specialtys = re.findall(r"Specialtys\(specialty='(.*?)', subspecialty=('.*?'|None)\)", specialtys)
+
+    for specialty in specialtys:
+        specialty = Specialtys(
+            specialty=specialty[0],
+            subspecialty=specialty[1].strip("'") if specialty[1] != 'None' else None,
+        )
+        converted.append(specialty)
+
+    return converted
+
+
+def unique_specialties() -> None:
+    """Creates an Excel file containing unique specialties."""
+
+    PaymentSpecialtys(nrows=None, years=2023).create_unique_specialtys_excel()

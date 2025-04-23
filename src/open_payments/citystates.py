@@ -1,18 +1,21 @@
 from typing import Union
 
 import pandas as pd
+import re
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
-from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
 class CityState(BaseModel):
-    """Class that contains the city and state of a payment."""
+    """Class encompassing a city and state combination.
+    To reflect where a provider could potentially live
+    or practice and thus be reflected in a payment
+    to them."""
 
-    city: str | None = None
-    state: str | None = None
+    city: Union[str, None] = None
+    state: Union[str, None] = None
 
     def __str__(self) -> str:
         return f"{self.city}|{self.state}"
@@ -94,6 +97,9 @@ class PaymentCityStates(ReadPayments):
 
         city = payment["city"]
 
+        if pd.isna(city):
+            city = None
+
         return [
             CityState(city=city, state=state) for state in states
         ] if len(states) > 0 else [
@@ -131,3 +137,22 @@ class PaymentCityStates(ReadPayments):
         self.ownership_payments = super().update_ownership_payments()
 
         return self.ownership_payments
+
+
+def convert_citystates(citystates: str) -> list[CityState]:
+    """Convert a string representation of a list of CityState objects
+    to a list of CityState objects."""
+
+    converted = []
+
+    citystates = re.findall(r"CityState\(city='(.*?)', state='(.*?)'\)", citystates)
+
+    for citystate in citystates:
+
+        citystate = CityState(
+            city=citystate[0] if (citystate[0] != 'None' and citystate[0] != 'Nan') else None,
+            state=citystate[1] if (citystate[1] != 'None' and citystate[1] != "Nan") else None,
+        )
+        converted.append(citystate)
+
+    return converted

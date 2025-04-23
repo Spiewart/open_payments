@@ -1,26 +1,11 @@
 import enum
 import pandas as pd
+import re
 from typing import Union
 
+from .choices import Credentials
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
-
-
-class Credentials(enum.StrEnum):
-    """Enum class for credentials."""
-
-    MEDICAL_DOCTOR = "Medical Doctor"
-    DOCTOR_OF_DENTISTRY = "Doctor of Dentistry"
-    DOCTOR_OF_OSTEOPATHY = "Doctor of Osteopathy"
-    DOCTOR_OF_OPTOMETRY = "Doctor of Optometry"
-    CHIROPRACTOR = "Chiropractor"
-    DOCTOR_OF_PODIATRIC_MEDICINE = "Doctor of Podiatric Medicine"
-    NURSE_PRACTITIONER = "Nurse Practitioner"
-    PHYSICIAN_ASSISTANT = "Physician Assistant"
-    CERTIFIED_REGISTERED_NURSE_ANAESTHETIST = "Certified Registered Nurse Anesthetist"
-    CLINICAL_NURSE_SPECIALIST = "Clinical Nurse Specialist"
-    CERTIFIED_NURSE_MIDWIFE = "Certified Nurse-Midwife"
-    ANESTHESIOLOGIST_ASSISTANT = "Anesthesiologist Assistant"
 
 
 class PaymentCredentials(ReadPayments):
@@ -121,17 +106,6 @@ class PaymentCredentials(ReadPayments):
 
         return credentials
 
-    @staticmethod
-    def filter_MD_DO(df: pd.DataFrame) -> pd.DataFrame:
-        """Method that filters the DataFrame by MD and DO credentials."""
-
-        def payment_in_credentials(credentials: pd.Series) -> bool:
-            return any(cred in credentials for cred in [Credentials.MEDICAL_DOCTOR, Credentials.DOCTOR_OF_OSTEOPATHY])
-
-        MD_DO_ids = df[df["credentials"].apply(payment_in_credentials)]
-
-        return MD_DO_ids
-
     @classmethod
     def credentials(cls, payments: pd.DataFrame) -> pd.DataFrame:
         """Method that combines the credentials into a Series."""
@@ -159,6 +133,8 @@ class PaymentCredentials(ReadPayments):
 
         credentials = credentials.unique()
 
+        credentials = [Credentials(cred) for cred in credentials]
+
         return credentials
 
     @staticmethod
@@ -182,4 +158,26 @@ class PaymentCredentials(ReadPayments):
         self.ownership_payments["credential_6"] = None
         self.ownership_payments = super().update_ownership_payments()
 
+        self.ownership_payments["credential_7"] = None
         return self.ownership_payments
+
+
+def convert_credentials(credentials: str) -> list[Credentials]:
+    """Convert a string representation of a list of Credentials objects
+    to a list of Credentials objects."""
+
+    converted = []
+
+    credentials = re.findall(r": '(.*?)'", credentials)
+
+    for credential in credentials:
+        credential = Credentials(credential)
+        converted.append(credential)
+
+    return converted
+
+
+def unique_credentials() -> None:
+    """Creates an Excel file containing unique credentials."""
+
+    PaymentCredentials(nrows=None, years=2023).create_unique_credentials_excel()
