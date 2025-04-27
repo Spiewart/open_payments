@@ -73,7 +73,10 @@ def add_conflict_prefix(conflicteds: pd.DataFrame) -> pd.DataFrame:
 
     return conflicteds.rename(
         columns={
-            col: f"conflict_{col}" for col in conflicteds.columns if col != "last_name"
+            col: f"conflict_{col}" for col in conflicteds.columns if (
+                col != "last_name" and
+                col != "provider_pk"
+            )
         }
     )
 
@@ -128,7 +131,12 @@ class TestConflictedPaymentIDs(unittest.TestCase):
                     [Credentials.MEDICAL_DOCTOR],
                 ],
                 "specialtys": [
-                    [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")],
+                    [
+                        Specialtys(
+                            specialty="Pediatrics",
+                            subspecialty="Gastroenterology"
+                        ),
+                    ],
                     [Specialtys(specialty="Family Medicine")],
                     [Specialtys(specialty="Internal Medicine")],
                     [
@@ -169,10 +177,19 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             conflicteds=self.fake_conflicteds,
             payments=self.fake_payments
         )
+        # Add more mock data to payments
+        self.extra_mock_data = [
+            [4, "Nathan", "EG", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
+            [5, "Handsy", None, "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
+            [6, "Johnson", "C", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
+        ]
 
     def test__search_for_conflicteds_ids(self):
         # Test with fake conflicteds
-        self.reader = ConflictedPaymentIDs(conflicteds=self.fake_conflicteds, payments=self.fake_payments)
+        self.reader = ConflictedPaymentIDs(
+            conflicteds=self.fake_conflicteds,
+            payments=self.fake_payments,
+        )
         self.reader.search_for_conflicteds_ids()
         self.assertFalse(self.reader.unique_ids.empty)
         self.assertFalse(self.reader.unmatched.empty)
@@ -184,7 +201,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertIn("first_name", self.reader.unique_ids.columns)
         self.assertIn("middle_name", self.reader.unique_ids.columns)
         self.assertIn("last_name", self.reader.unique_ids.columns)
-        self.assertIn("conflict_provider_pk", self.reader.unique_ids.columns)
+        self.assertIn("provider_pk", self.reader.unique_ids.columns)
         self.assertIn("conflict_first_name", self.reader.unique_ids.columns)
         self.assertIn("conflict_middle_initial_1", self.reader.unique_ids.columns)
         self.assertIn("conflict_middle_initial_2", self.reader.unique_ids.columns)
@@ -220,14 +237,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         )
 
     def test__merge_by_lastname(self):
-        # Add more mock data to payments
-        extra_mock_data = [
-            [4, "Nathan", "EG", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
-            [5, "Handsy", None, "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
-            [6, "Johnson", "C", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
-        ]
-
-        for data in extra_mock_data:
+        for data in self.extra_mock_data:
             self.reader.payments = add_payment_id_to_payments_df(
                 self.reader.payments,
                 *data
@@ -247,7 +257,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertIn("specialtys", merged.columns)
         self.assertIn("credentials", merged.columns)
         self.assertIn("citystates", merged.columns)
-        self.assertIn("conflict_provider_pk", merged.columns)
+        self.assertIn("provider_pk", merged.columns)
         self.assertIn("conflict_first_name", merged.columns)
         self.assertIn("conflict_middle_initial_1", merged.columns)
         self.assertIn("conflict_middle_initial_2", merged.columns)
@@ -270,24 +280,18 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_credential(
+        match = ConflictedPaymentIDs.filter_by_credential(
             fake_row,
         )
 
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.CREDENTIAL,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
         fake_row.update({"conflict_credentials": [Credentials.MEDICAL_DOCTOR]})
-        filtered_df = ConflictedPaymentIDs.filter_by_credential(
+        match = ConflictedPaymentIDs.filter_by_credential(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.CREDENTIAL,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_first_name(self):
         fake_row = pd.Series({
@@ -296,36 +300,27 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "conflict_first_name": "Judd",
             "filters": [PaymentFilters.LASTNAME],
         })
-        filtered_df = ConflictedPaymentIDs.filter_by_firstname(
+        match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.FIRSTNAME,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_first_name": "John"})
-        filtered_df = ConflictedPaymentIDs.filter_by_firstname(
+        match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.FIRSTNAME,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
         fake_row["conflict_first_name"] = None
         fake_row["filters"] = [PaymentFilters.LASTNAME]
 
-        filtered_df = ConflictedPaymentIDs.filter_by_firstname(
+        match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.FIRSTNAME,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
     def test__filter_by_specialty(self):
         fake_row = pd.Series({
@@ -339,23 +334,19 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             ],
             "filters": [PaymentFilters.LASTNAME],
         })
-        filtered_df = ConflictedPaymentIDs.filter_by_specialty(
+        match = ConflictedPaymentIDs.filter_by_specialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.SPECIALTY,
-            filtered_df["filters"],
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
+        fake_row.update(
+            {"conflict_specialtys": [Specialtys(specialty="Pediatrics")]}
         )
-        fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_specialty(
+        match = ConflictedPaymentIDs.filter_by_specialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.SPECIALTY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_subspecialty(self):
         fake_row = pd.Series({
@@ -369,23 +360,17 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             ],
             "filters": [PaymentFilters.LASTNAME],
         })
-        filtered_df = ConflictedPaymentIDs.filter_by_subspecialty(
+        match = ConflictedPaymentIDs.filter_by_subspecialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.SUBSPECIALTY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
         fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_subspecialty(
+        match = ConflictedPaymentIDs.filter_by_subspecialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.SUBSPECIALTY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_fullspecialty(self):
         fake_row = pd.Series({
@@ -399,23 +384,17 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             ],
             "filters": [PaymentFilters.LASTNAME],
         })
-        filtered_df = ConflictedPaymentIDs.filter_by_fullspecialty(
+        match = ConflictedPaymentIDs.filter_by_fullspecialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.FULLSPECIALTY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
         fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_fullspecialty(
+        match = ConflictedPaymentIDs.filter_by_fullspecialty(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.FULLSPECIALTY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_city(self):
         fake_row = pd.Series({
@@ -425,24 +404,18 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_city(
+        match = ConflictedPaymentIDs.filter_by_city(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.CITY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_city(
+        match = ConflictedPaymentIDs.filter_by_city(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.CITY,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_state(self):
         fake_row = pd.Series({
@@ -452,24 +425,18 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_state(
+        match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.STATE,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_state(
+        match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.STATE,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_citystate(self):
 
@@ -480,24 +447,18 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_citystate(
+        match = ConflictedPaymentIDs.filter_by_citystate(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.CITYSTATE,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
-        filtered_df = ConflictedPaymentIDs.filter_by_citystate(
+        match = ConflictedPaymentIDs.filter_by_citystate(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.CITYSTATE,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__filter_by_middle_initial(self):
         fake_row = pd.Series({
@@ -510,24 +471,18 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_middle_initial(
+        match = ConflictedPaymentIDs.filter_by_middle_initial(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.MIDDLE_INITIAL,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_middle_initial_1": "A"})
-        filtered_df = ConflictedPaymentIDs.filter_by_middle_initial(
+        match = ConflictedPaymentIDs.filter_by_middle_initial(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.MIDDLE_INITIAL,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
     def test__middle_initial_match(self):
         self.assertFalse(
@@ -590,31 +545,73 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "filters": [PaymentFilters.LASTNAME],
         })
 
-        filtered_df = ConflictedPaymentIDs.filter_by_middlename(
+        match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertNotIn(
-            PaymentFilters.MIDDLENAME,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertFalse(match)
 
         fake_row.update({"conflict_middle_name_1": "Alpha"})
-        filtered_df = ConflictedPaymentIDs.filter_by_middlename(
+        match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
-        self.assertIn(
-            PaymentFilters.MIDDLENAME,
-            filtered_df["filters"],
-        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
 
         fake_row.update({"conflict_middle_name_2": "Alpha"})
-        filtered_df = ConflictedPaymentIDs.filter_by_middlename(
+        match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(filtered_df, pd.Series)
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
+
+    def test__filter_payments_for_conflicted(self):
+        for data in self.extra_mock_data:
+            self.reader.payments = add_payment_id_to_payments_df(
+                self.reader.payments,
+                *data
+            )
+        self.reader.conflicteds = add_conflict_prefix(self.reader.conflicteds)
+        doe_conflicted = self.reader.conflicteds.iloc[0]
+
+        self.assertTrue(
+            self.reader.unique_ids.empty
+        )
+
+        self.reader.filter_payments_for_conflicted(
+            conflicted=doe_conflicted,
+        )
+
+        self.assertFalse(
+            self.reader.unique_ids.empty
+        )
+
+        doe_id = self.reader.unique_ids.iloc[0]
+
+        # Test that all the filters are applied
+        self.assertIn(PaymentFilters.LASTNAME, doe_id["filters"])
+        self.assertIn(PaymentFilters.FIRSTNAME, doe_id["filters"])
+        self.assertIn(PaymentFilters.CREDENTIAL, doe_id["filters"])
+        self.assertIn(PaymentFilters.SPECIALTY, doe_id["filters"])
+        self.assertIn(PaymentFilters.CITY, doe_id["filters"])
+        self.assertIn(PaymentFilters.STATE, doe_id["filters"])
+        self.assertIn(PaymentFilters.CITYSTATE, doe_id["filters"])
+        self.assertIn(PaymentFilters.MIDDLENAME, doe_id["filters"])
+        self.assertIn(PaymentFilters.MIDDLE_INITIAL, doe_id["filters"])
+
+        # Test that the "ebalt" row is in the unmatched DataFrame
+
+        self.reader.filter_payments_for_conflicted(
+            conflicted=self.reader.conflicteds.iloc[3],
+        )
+        self.assertFalse(
+            self.reader.unique_ids.empty
+        )
         self.assertIn(
-            PaymentFilters.MIDDLENAME,
-            filtered_df["filters"],
+            "Ebalt",
+            self.reader.unmatched["last_name"].values.tolist()
+        )
+        self.assertEqual(
+            self.reader.unmatched.iloc[0]["unmatched"],
+            Unmatcheds.NOLASTNAME
         )

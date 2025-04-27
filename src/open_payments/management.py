@@ -65,3 +65,26 @@ def create_all_MD_DO_payments_csvs() -> None:
     for payment_class in ["general", "ownership", "research"]:
         for year in [2020, 2021, 2022, 2023]:
             create_MD_DO_payments_csv(payment_class, year)
+
+
+def load_MD_DO_payments_csvs() -> pd.DataFrame:
+    """Method that loads all OpenPayments payments for MDs and DOs
+    for the years 2020-2023 for all payment types (general, ownership,
+    and research). The method will return a dataframe with all the
+    payments."""
+
+    path = open_payments_directory()
+
+    # Get the list of files in the directory
+    files = os.listdir(path)
+
+    # Filter the files to only include the ones that start with "MD_DO_payments"
+    files = [f for f in files if f.startswith("MD_DO_payments")]
+
+    # Load the files into a dataframe
+    payments = pd.concat(
+        [pd.read_csv(os.path.join(path, f)) for f in files],
+        ignore_index=True,
+    )
+
+    return payments

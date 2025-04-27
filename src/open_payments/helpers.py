@@ -1,23 +1,8 @@
 import os
-import pandas as pd
 import re
+from typing import Literal, Union
 
-from typing import Union, Literal
-
-
-def get_conflicted_ids_from_file() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Method that returns a tuple of DataFrames containing the matched
-    IDs of conflicteds and conflicteds who were unmatched after searching
-    for an ID in OpenPayments."""
-
-    path = open_payments_directory()
-
-    with pd.ExcelFile(f"{path}/conflicted_ids.xlsx") as xls:
-        # Read the first sheet into a DataFrame
-        matched_df = pd.read_excel(xls, sheet_name="conflicted_ids")
-        # Read the second sheet into a DataFrame
-        unmatched_df = pd.read_excel(xls, sheet_name="unmatched")
-    return matched_df, unmatched_df
+import pandas as pd
 
 
 def get_file_suffix(
@@ -31,6 +16,9 @@ def get_file_suffix(
             None,
         ],
 ) -> str:
+    if not isinstance(payment_classes, list):
+        payment_classes = [payment_classes] if payment_classes is not None else []
+
     return (
             f"_{'_'.join(payment_classes)}_{('_'.join([str(year) for year in years] if isinstance(years, list) else [str(years)]))}"
             if (

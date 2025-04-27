@@ -1,7 +1,19 @@
 import os
+import pandas as pd
 import unittest
 
-from ..helpers import get_file_suffix, open_payments_directory
+from ..helpers import get_conflicted_ids_from_file, get_file_suffix, open_payments_directory
+
+
+class TestGetConflictedIdsFromFile(unittest.TestCase):
+    def test__get_conflicted_ids_from_file(self):
+
+        ids = get_conflicted_ids_from_file()
+
+        self.assertTrue(isinstance(ids, tuple))
+        self.assertEqual(len(ids), 2)
+        self.assertTrue(isinstance(ids[0], pd.DataFrame))
+        self.assertTrue(isinstance(ids[1], pd.DataFrame))
 
 
 class TestFileSuffix(unittest.TestCase):
