@@ -1,8 +1,7 @@
 import unittest
 import pandas as pd
 
-from ..credentials import Credentials, PaymentCredentials
-from ..read import ReadPayments
+from ..credentials import convert_credentials, Credentials, PaymentCredentials
 
 
 class TestPaymentCredentials(unittest.TestCase):
@@ -75,3 +74,44 @@ class TestPaymentCredentials(unittest.TestCase):
         self.assertIn(Credentials.CHIROPRACTOR, credentials_6)
         self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, credentials_2)
         self.assertIn(Credentials.NURSE_PRACTITIONER, credentials_2)
+
+
+class TestConvertCredentials(unittest.TestCase):
+    def test__with_str(self):
+        converted = convert_credentials(
+            "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]"
+        )
+        self.assertIsInstance(converted, list)
+        self.assertTrue(converted)
+        self.assertEqual(len(converted), 1)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, converted)
+
+    def test__with_multiple_strs(self):
+        converted = convert_credentials(
+            (
+                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, "
+                "<Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]"
+            )
+        )
+        self.assertIsInstance(converted, list)
+        self.assertTrue(converted)
+        self.assertEqual(len(converted), 2)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, converted)
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, converted)
+
+    def test__applied_to_df(self):
+        df = pd.DataFrame(
+            {"credentials": [
+                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]",
+                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, <Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]",
+            ]}
+        )
+
+        df["credentials"] = df["credentials"].apply(convert_credentials)
+        self.assertIsInstance(df["credentials"].iloc[0], list)
+        self.assertEqual(len(df["credentials"].iloc[0]), 1)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, df["credentials"].iloc[0])
+        self.assertIsInstance(df["credentials"].iloc[1], list)
+        self.assertEqual(len(df["credentials"].iloc[1]), 2)
+        self.assertIn(Credentials.MEDICAL_DOCTOR, df["credentials"].iloc[1])
+        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, df["credentials"].iloc[1])

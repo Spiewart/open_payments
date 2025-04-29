@@ -240,9 +240,14 @@ class ConflictedPaymentIDs(PaymentIDs):
             )
             return
 
-        # Update the payments_df to turn citystates, credentials,
-        # and specialtys into lists (as opposed to strings found in csvs)
+        # Update citystates, credentials, and specialtys into lists
+        # Loaded as strs in CSVs and Excel files
+        # Apply to payments and conflicteds columns
         merged["citystates"] = merged["citystates"].apply(
+            lambda x: convert_citystates(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_citystates"] = merged["conflict_citystates"].apply(
             lambda x: convert_citystates(x) if isinstance(x, str) else x
         )
 
@@ -250,7 +255,15 @@ class ConflictedPaymentIDs(PaymentIDs):
             lambda x: convert_credentials(x) if isinstance(x, str) else x
         )
 
+        merged["conflict_credentials"] = merged["conflict_credentials"].apply(
+            lambda x: convert_credentials(x) if isinstance(x, str) else x
+        )
+
         merged["specialtys"] = merged["specialtys"].apply(
+            lambda x: convert_specialtys(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_specialtys"] = merged["conflict_specialtys"].apply(
             lambda x: convert_specialtys(x) if isinstance(x, str) else x
         )
 
@@ -263,29 +276,34 @@ class ConflictedPaymentIDs(PaymentIDs):
                 axis=1,
             )
 
-        # Get the row with the most filter matches
-        highest_match = merged[
+        # Get the rows with the most filter matches
+        highest_matches = merged[
             merged["filters"].apply(
                 lambda x: len(x) == max(
                     merged["filters"].apply(len)
                 )
             )
         ]
+        # Of the highest matches, reduce the DataFrame to only
+        # have a single payment from each profile_id
+        highest_matches = highest_matches.drop_duplicates(
+            subset="profile_id", keep="first"
+        )
 
-        if highest_match.shape[0] == 1:
-            print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {highest_match}")
-            highest_match.insert(
+        if highest_matches.shape[0] == 1:
+            print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
+            highest_matches.insert(
                 0,
                 "num_filters",
-                highest_match["filters"].apply(len),
+                highest_matches["filters"].apply(len),
             )
             self.unique_ids = pd.concat(
-                [self.unique_ids, highest_match],
+                [self.unique_ids, highest_matches],
                 ignore_index=True,
             )
         else:
             print(
-                f"Multiple matches found for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {len(highest_match)}")
+                f"Multiple matches found for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {len(highest_matches)}")
             unmatched_conflict = self.conflicteds[
                 self.conflicteds["provider_pk"] == conflicted["provider_pk"]
             ]
@@ -369,13 +387,7 @@ class ConflictedPaymentIDs(PaymentIDs):
         filter to the filters column to indicate as such if so."""
 
         return (
-            cls.empty_array_or_nan_can_be_iterated(
-                payments_x_conflicted["credentials"]
-            )
-            and cls.empty_array_or_nan_can_be_iterated(
-                payments_x_conflicted["conflict_credentials"]
-            )
-            and any(
+            any(
                 cred in payments_x_conflicted["credentials"]
                 for cred in payments_x_conflicted["conflict_credentials"]
             )
@@ -443,10 +455,7 @@ class ConflictedPaymentIDs(PaymentIDs):
             ] for spec in [
                 spec for spec in conflict_specialtys if pd.notna(spec)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_specialtys)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_specialtys)
-        ) else False
+        )
 
     @classmethod
     def filter_by_subspecialty(
@@ -479,10 +488,7 @@ class ConflictedPaymentIDs(PaymentIDs):
             ] for spec in [
                 spec for spec in conflict_specialtys if pd.notna(spec)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_specialtys)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_specialtys)
-        ) else False
+        )
 
     @classmethod
     def filter_by_fullspecialty(
@@ -513,10 +519,7 @@ class ConflictedPaymentIDs(PaymentIDs):
             ] for spec in [
                 spec for spec in conflict_specialtys if pd.notna(spec)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_specialtys)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_specialtys)
-        ) else False
+        )
 
     @classmethod
     def filter_by_city(
@@ -549,18 +552,7 @@ class ConflictedPaymentIDs(PaymentIDs):
                 citystate for citystate in conflict_citystates
                 if pd.notna(citystate)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
-        ) else False
-
-    @staticmethod
-    def empty_array_or_nan_can_be_iterated(
-        row: Union[list, float]
-    ) -> bool:
-        """Checks if the citystates can be iterated over."""
-
-        return isinstance(row, list) and row
+        )
 
     @classmethod
     def filter_by_state(
@@ -593,10 +585,7 @@ class ConflictedPaymentIDs(PaymentIDs):
                 citystate for citystate in conflict_citystates
                 if pd.notna(citystate)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
-        ) else False
+        )
 
     @classmethod
     def filter_by_citystate(
@@ -629,10 +618,7 @@ class ConflictedPaymentIDs(PaymentIDs):
                 citystate for citystate in conflict_citystates
                 if pd.notna(citystate)
             ]
-        ) if (
-            cls.empty_array_or_nan_can_be_iterated(payment_citystates)
-            and cls.empty_array_or_nan_can_be_iterated(conflict_citystates)
-        ) else False
+        )
 
     @classmethod
     def filter_by_middle_initial(

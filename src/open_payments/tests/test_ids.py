@@ -1,3 +1,4 @@
+from typing import Union
 import unittest
 
 import numpy as np
@@ -83,7 +84,7 @@ def add_conflict_prefix(conflicteds: pd.DataFrame) -> pd.DataFrame:
 
 def add_payment_id_to_payments_df(
     payments: pd.DataFrame,
-    profile_id: int,
+    profile_id: Union[int, None],
     first_name: str,
     middle_name: str,
     last_name: str,
@@ -94,6 +95,9 @@ def add_payment_id_to_payments_df(
     """
     Add a new payment ID to the payments DataFrame.
     """
+    if profile_id is None:
+        # Get the next unique profile_id
+        profile_id = payments["profile_id"].max() + 1
 
     payments = pd.concat(
         [
@@ -103,9 +107,9 @@ def add_payment_id_to_payments_df(
                 "first_name": first_name,
                 "middle_name": middle_name,
                 "last_name": last_name,
-                "specialtys": specialtys,
-                "credentials": credentials,
-                "citystates": citystates,
+                "specialtys": [specialtys],
+                "credentials": [credentials],
+                "citystates": [citystates],
             }),
         ],
         ignore_index=True
@@ -165,7 +169,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "credentials": [
                 [Credentials.MEDICAL_DOCTOR],
                 [Credentials.DOCTOR_OF_OSTEOPATHY],
-                [Credentials.PHYSICIAN_ASSISTANT]
+                [Credentials.PHYSICIAN_ASSISTANT],
             ],
             "citystates": [
                 [CityState(city="New York", state="NY")],
@@ -614,4 +618,68 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertEqual(
             self.reader.unmatched.iloc[0]["unmatched"],
             Unmatcheds.NOLASTNAME
+        )
+
+        # Test that the algorithm still works when there are duplicate,
+        # equally likely payments
+        self.reader.payments = add_payment_id_to_payments_df(
+            self.reader.payments,
+            *self.fake_payments.iloc[0].values.tolist()
+        )
+
+        self.reader.unique_ids = pd.DataFrame()
+
+        self.reader.filter_payments_for_conflicted(
+            conflicted=doe_conflicted,
+        )
+
+        self.assertFalse(
+            self.reader.unique_ids.empty
+        )
+
+        self.assertIn(
+            "Doe",
+            self.reader.unique_ids["last_name"].values.tolist()
+        )
+
+        # Test that the algorithm will filter by credential
+
+        # Get the "Smith" row
+        smith_payment = self.reader.payments.iloc[1]
+
+        smith_copy = smith_payment.copy()
+
+        # Change the profile_id and cerdentials
+        smith_copy["profile_id"] = None
+        smith_copy["credentials"] = [Credentials.NURSE_PRACTITIONER]
+
+        # Add a second "Smith" row with a non-MD/DO credential
+        self.reader.payments = add_payment_id_to_payments_df(
+            self.reader.payments,
+            *smith_copy.values.tolist()
+        )
+
+        self.reader.unique_ids = pd.DataFrame()
+
+        self.reader.filter_payments_for_conflicted(
+            conflicted=self.reader.conflicteds.iloc[1],
+        )
+        self.assertFalse(
+            self.reader.unique_ids.empty
+        )
+        self.assertIn(
+            "Smith",
+            self.reader.unique_ids["last_name"].values.tolist()
+        )
+        self.assertIn(
+            PaymentFilters.CREDENTIAL,
+            self.reader.unique_ids.iloc[0]["filters"]
+        )
+        self.assertEqual(
+            self.reader.unique_ids.iloc[0]["profile_id"],
+            2,
+        )
+        self.assertNotEqual(
+            self.reader.unique_ids.iloc[0]["profile_id"],
+            7
         )
