@@ -183,3 +183,38 @@ class TestPaymentCityStates(unittest.TestCase):
             self.assertTrue(isinstance(citystate, CityState))
             self.assertEqual("NY", citystate.state)
             self.assertEqual("New York", citystate.city)
+
+
+class TestCityState(unittest.TestCase):
+
+    def test__state_is_abbrev(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertTrue(citystate.state_is_abbrev)
+        citystate = CityState(city="New York", state="New York")
+        self.assertFalse(citystate.state_is_abbrev)
+        citystate = CityState(city="New York", state=None)
+        self.assertFalse(citystate.state_is_abbrev)
+
+    def test__state_abbrev(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertEqual(citystate.state_abbrev, "NY")
+        citystate = CityState(city="New York", state="New York")
+        self.assertEqual(citystate.state_abbrev, "NY")
+        citystate = CityState(city="New York", state=None)
+        self.assertEqual(citystate.state_abbrev, None)
+
+    def test__state_is_full_name(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertFalse(citystate.state_is_full_name)
+        citystate = CityState(city="New York", state="New York")
+        self.assertTrue(citystate.state_is_full_name)
+        citystate = CityState(city="New York", state=None)
+        self.assertFalse(citystate.state_is_full_name)
+        
+    def test__state_full(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertEqual(citystate.state_full, "New York")
+        citystate = CityState(city="New York", state="New York")
+        self.assertEqual(citystate.state_full, "New York")
+        citystate = CityState(city="New York", state=None)
+        self.assertEqual(citystate.state_full, None)

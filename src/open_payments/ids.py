@@ -234,38 +234,17 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         if merged.empty:
             print(f"No payments found for {conflicted['last_name']}.")
-            conflicted["unmatched"] = Unmatcheds.NOLASTNAME
-            self.unmatched = pd.concat(
-                [self.unmatched, pd.DataFrame([conflicted])]
+            self.add_unmatched(
+                conflicted=self.conflicteds[
+                    self.conflicteds["provider_pk"] == conflicted["provider_pk"]
+                ],
+                unmatched=Unmatcheds.NOLASTNAME,
+                filters=[],
+                num_filters=0,
             )
             return
 
-        # Update citystates, credentials, and specialtys into lists
-        # Loaded as strs in CSVs and Excel files
-        # Apply to payments and conflicteds columns
-        merged["citystates"] = merged["citystates"].apply(
-            lambda x: convert_citystates(x) if isinstance(x, str) else x
-        )
-
-        merged["conflict_citystates"] = merged["conflict_citystates"].apply(
-            lambda x: convert_citystates(x) if isinstance(x, str) else x
-        )
-
-        merged["credentials"] = merged["credentials"].apply(
-            lambda x: convert_credentials(x) if isinstance(x, str) else x
-        )
-
-        merged["conflict_credentials"] = merged["conflict_credentials"].apply(
-            lambda x: convert_credentials(x) if isinstance(x, str) else x
-        )
-
-        merged["specialtys"] = merged["specialtys"].apply(
-            lambda x: convert_specialtys(x) if isinstance(x, str) else x
-        )
-
-        merged["conflict_specialtys"] = merged["conflict_specialtys"].apply(
-            lambda x: convert_specialtys(x) if isinstance(x, str) else x
-        )
+        merged = self.convert_merged_dtypes(merged)
 
         for payment_filter in self.filters:
             merged = merged.apply(
@@ -292,34 +271,37 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         if highest_matches.shape[0] == 1:
             print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
-            highest_matches.insert(
-                0,
-                "num_filters",
-                highest_matches["filters"].apply(len),
-            )
-            self.unique_ids = pd.concat(
-                [self.unique_ids, highest_matches],
-                ignore_index=True,
-            )
+            self.add_unique_id(highest_matches)
         else:
             print(
-                f"Multiple matches found for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {len(highest_matches)}")
-            unmatched_conflict = self.conflicteds[
-                self.conflicteds["provider_pk"] == conflicted["provider_pk"]
-            ]
-            if "unmatched_conflict" in self.unmatched.columns:
-                unmatched_conflict.loc[
-                    unmatched_conflict["unmatched"]
-                    ] = Unmatcheds.UNFILTERABLE
-            else:
-                unmatched_conflict.insert(0, "unmatched", [
-                    Unmatcheds.UNFILTERABLE
-                    for _ in range(len(unmatched_conflict))
-                ])
-
-            self.unmatched = pd.concat(
-                [self.unmatched, unmatched_conflict]
+                f"Multiple matches found for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {len(highest_matches)}"
             )
+
+            print(
+                "Attempting to find a single good match..."
+            )
+
+            best_highest_matches = self.get_best_highest_matches(
+                highest_matches
+            )
+
+            if (
+                not best_highest_matches.empty
+                and best_highest_matches.shape[0] == 1
+            ):
+                print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
+                self.add_unique_id(best_highest_matches)
+            else:
+                unmatched_conflict = self.conflicteds[
+                    self.conflicteds["provider_pk"] == conflicted["provider_pk"]
+                ]
+
+                self.add_unmatched(
+                    conflicted=unmatched_conflict,
+                    unmatched=Unmatcheds.UNFILTERABLE,
+                    filters=highest_matches.iloc[0]["filters"],
+                    num_filters=len(highest_matches.iloc[0]["filters"])
+                )
 
     def merge_by_last_name(
         self,
@@ -335,6 +317,18 @@ class ConflictedPaymentIDs(PaymentIDs):
             self.payments["last_name"].str.lower()
             == conflicted["last_name"].lower()
         ]
+
+        # If no last name matches are found, some last names contain
+        # multiple last names, so we can check if the conflicted last
+        # name is in the payments last name
+        if merged_payments.empty:
+            merged_payments = self.payments[
+                self.payments["last_name"].str.contains(
+                    conflicted["last_name"],
+                    na=False,
+                    case=False,
+                )
+            ]
 
         if merged_payments.empty:
             return merged_payments
@@ -356,6 +350,71 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         return merged
 
+    def add_unmatched(
+        self,
+        conflicted: pd.DataFrame,
+        unmatched: Unmatcheds,
+        filters: list[PaymentFilters],
+        num_filters: int,
+    ) -> None:
+        """Adds the unmatched conflicted provider to the unmatched
+        DataFrame."""
+
+        conflicted.loc[:, 'unmatched'] = unmatched
+        conflicted.loc[:, "filters"] = [filters]
+        conflicted.loc[:, "num_filters"] = num_filters
+
+        self.unmatched = pd.concat(
+            [self.unmatched, pd.DataFrame(conflicted)]
+        )
+
+    def convert_merged_dtypes(
+        self,
+        merged: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Updates citystates, credentials, and specialtys from payments
+        and conflicteds columns into lists after they are loaded as strs
+        in CSVs and Excel files."""
+
+        merged["citystates"] = merged["citystates"].apply(
+            lambda x: convert_citystates(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_citystates"] = merged["conflict_citystates"].apply(
+            lambda x: convert_citystates(x) if isinstance(x, str) else x
+        )
+
+        merged["credentials"] = merged["credentials"].apply(
+            lambda x: convert_credentials(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_credentials"] = merged["conflict_credentials"].apply(
+            lambda x: convert_credentials(x) if isinstance(x, str) else x
+        )
+
+        merged["specialtys"] = merged["specialtys"].apply(
+            lambda x: convert_specialtys(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_specialtys"] = merged["conflict_specialtys"].apply(
+            lambda x: convert_specialtys(x) if isinstance(x, str) else x
+        )
+        return merged
+
+    def add_unique_id(
+        self,
+        highest_matches: pd.DataFrame,
+    ) -> None:
+        highest_matches.insert(
+            0,
+            "num_filters",
+            highest_matches["filters"].apply(len),
+        )
+        self.unique_ids = pd.concat(
+            [self.unique_ids, highest_matches],
+            ignore_index=True,
+        )
+
     def filter_payment(
         self,
         payments_x_conflicted: pd.Series,
@@ -376,6 +435,36 @@ class ConflictedPaymentIDs(PaymentIDs):
             )
 
         return payments_x_conflicted
+
+    def get_best_highest_matches(
+        self,
+        highest_matches: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Method for re-filtering a DataFrame of highest payment matches for
+        the conflicted. Preferentially selects payments for which there is a
+        first name match, then city/state."""
+
+        highest_matches = highest_matches[
+            highest_matches["filters"].apply(
+                lambda x: PaymentFilters.FIRSTNAME in x
+            )
+        ]
+
+        if not highest_matches.empty:
+            if highest_matches.shape[0] == 1:
+                return highest_matches
+            else:
+                highest_matches = highest_matches[
+                    highest_matches["filters"].apply(
+                        lambda x: (
+                            PaymentFilters.CITYSTATE in x
+                            or PaymentFilters.STATE in x
+                            or PaymentFilters.CITY in x
+                        )
+                    )
+                ]
+
+        return highest_matches
 
     @classmethod
     def filter_by_credential(
@@ -451,9 +540,19 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         return any(
             spec.specialty in [
-                spec.specialty for spec in payment_specialtys if pd.notna(spec)
+                spec.specialty for spec in payment_specialtys if (
+                    pd.notna(spec)
+                    and pd.notna(
+                        spec.specialty
+                    )
+                )
             ] for spec in [
-                spec for spec in conflict_specialtys if pd.notna(spec)
+                spec for spec in conflict_specialtys if (
+                    pd.notna(spec)
+                    and pd.notna(
+                        spec.specialty
+                    )
+                )
             ]
         )
 
@@ -482,11 +581,19 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         return any(
             spec.subspecialty in [
-                spec.subspecialty for spec in payment_specialtys if pd.notna(
-                    spec
+                spec.subspecialty for spec in payment_specialtys if (
+                    pd.notna(spec)
+                    and pd.notna(
+                        spec.subspecialty
+                    )
                 )
             ] for spec in [
-                spec for spec in conflict_specialtys if pd.notna(spec)
+                spec for spec in conflict_specialtys if (
+                    pd.notna(spec)
+                    and pd.notna(
+                        spec.subspecialty
+                    )
+                )
             ]
         )
 
@@ -547,10 +654,20 @@ class ConflictedPaymentIDs(PaymentIDs):
         return any(
             citystate.city in [
                 citystate.city for citystate in payment_citystates
-                if pd.notna(citystate)
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(
+                        citystate.city
+                    )
+                )
             ] for citystate in [
                 citystate for citystate in conflict_citystates
-                if pd.notna(citystate)
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(
+                        citystate.city
+                    )
+                )
             ]
         )
 
@@ -580,10 +697,16 @@ class ConflictedPaymentIDs(PaymentIDs):
         return any(
             citystate.state in [
                 citystate.state for citystate in payment_citystates
-                if pd.notna(citystate)
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(citystate.state)
+                )
             ] for citystate in [
                 citystate for citystate in conflict_citystates
-                if pd.notna(citystate)
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(citystate.state)
+                )
             ]
         )
 

@@ -52,7 +52,7 @@ def create_MD_DO_payments_csv(
     )
 
     payments.to_csv(
-        f"{path}/{file_name}.csv",
+        f"{path}/{file_name}",
         index=False,
     )
 

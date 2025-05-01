@@ -1,10 +1,11 @@
-from typing import Union
+from typing import ClassVar, Union
 
 import pandas as pd
 import re
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
+from .choices import States
 from .read import ReadPayments
 
 
@@ -16,6 +17,49 @@ class CityState(BaseModel):
 
     city: Union[str, None] = None
     state: Union[str, None] = None
+
+    States: ClassVar = States
+
+    @property
+    def state_is_abbrev(self) -> bool:
+        """Returns True if the state is an abbreviation, False otherwise."""
+        # Remove any periods that may be in the state abbreviation
+        state = re.sub(r"\.", "", self.state) if self.state else None
+        return state in self.States.__members__
+
+    @property
+    def state_abbrev(self) -> str:
+        """Returns the state abbreviation for the state."""
+        if self.state_is_abbrev:
+            return self.state
+        else:
+            try:
+                return next(
+                    iter(
+                        state.name
+                        for state in self.States.__members__.values()
+                        if state == self.state
+                        )
+                ) if self.state else None
+            except KeyError as e:
+                raise ValueError(
+                        f"State {self.state} is not a valid state."
+                    ) from e
+
+    @property
+    def state_is_full_name(self) -> bool:
+
+        return (
+            self.state in self.States.__members__.values()
+        )
+
+    @property
+    def state_full(self) -> str:
+        """Returns the full name of the state."""
+        if self.state_is_abbrev:
+            return self.States[self.state].value
+        else:
+            return self.state
 
     def __str__(self) -> str:
         return f"{self.city}|{self.state}"
