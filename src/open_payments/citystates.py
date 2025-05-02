@@ -1,7 +1,7 @@
+import re
 from typing import ClassVar, Union
 
 import pandas as pd
-import re
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
@@ -20,17 +20,17 @@ class CityState(BaseModel):
 
     States: ClassVar = States
 
-    @property
-    def state_is_abbrev(self) -> bool:
+    @classmethod
+    def state_is_abbrev(cls, state: str) -> bool:
         """Returns True if the state is an abbreviation, False otherwise."""
         # Remove any periods that may be in the state abbreviation
-        state = re.sub(r"\.", "", self.state) if self.state else None
-        return state in self.States.__members__
+        state = re.sub(r"\.", "", state) if state else None
+        return state in cls.States.__members__
 
     @property
     def state_abbrev(self) -> str:
         """Returns the state abbreviation for the state."""
-        if self.state_is_abbrev:
+        if self.state_is_abbrev(self.state):
             return self.state
         else:
             try:
@@ -39,27 +39,50 @@ class CityState(BaseModel):
                         state.name
                         for state in self.States.__members__.values()
                         if state == self.state
-                        )
+                        ),
+                    None,
                 ) if self.state else None
             except KeyError as e:
                 raise ValueError(
                         f"State {self.state} is not a valid state."
                     ) from e
 
-    @property
-    def state_is_full_name(self) -> bool:
+    @classmethod
+    def state_is_full_name(cls, state: str) -> bool:
 
         return (
-            self.state in self.States.__members__.values()
+            state in cls.States.__members__.values()
         )
 
     @property
     def state_full(self) -> str:
         """Returns the full name of the state."""
-        if self.state_is_abbrev:
+        if self.state_is_abbrev(self.state):
             return self.States[self.state].value
         else:
             return self.state
+
+    def state_matches(self, state: str) -> bool:
+        """Method that compares the CityState object's state attribute
+        to the state passed in. Returns True if they are the same, False
+        if not."""
+
+        if self.state_is_abbrev(state=state):
+            return self.state_abbrev == state
+        elif self.state_is_full_name(state=state):
+            return self.state_full == state
+        else:
+            return False
+
+    def citystate_matches(self, citystate: "CityState") -> bool:
+        """Method that compares the CityState object's city and state
+        attribute to the CityState passed in. Returns True if they are the
+        same, False if not."""
+
+        return (
+            self.city == citystate.city
+            and self.state_matches(state=citystate.state)
+        )
 
     def __str__(self) -> str:
         return f"{self.city}|{self.state}"

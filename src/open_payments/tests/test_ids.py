@@ -442,6 +442,25 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertIsInstance(match, bool)
         self.assertTrue(match)
 
+        fake_row.update({"conflict_citystates": [CityState(city="New York", state="New York"), CityState(city="Los Angeles", state="CA")]})
+
+        match = ConflictedPaymentIDs.filter_by_state(
+            fake_row,
+        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
+
+        fake_row.update({
+            "conflict_citystates": [CityState(city="New York", state="NY"), CityState(city="Los Angeles", state="CA")],
+            "citystates": [CityState(city="New York", state="New York")],
+        })
+
+        match = ConflictedPaymentIDs.filter_by_state(
+            fake_row,
+        )
+        self.assertIsInstance(match, bool)
+        self.assertTrue(match)
+        
     def test__filter_by_citystate(self):
 
         fake_row = pd.Series({

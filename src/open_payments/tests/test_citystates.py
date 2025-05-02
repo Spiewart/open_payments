@@ -189,11 +189,11 @@ class TestCityState(unittest.TestCase):
 
     def test__state_is_abbrev(self):
         citystate = CityState(city="New York", state="NY")
-        self.assertTrue(citystate.state_is_abbrev)
+        self.assertTrue(citystate.state_is_abbrev(citystate.state))
         citystate = CityState(city="New York", state="New York")
-        self.assertFalse(citystate.state_is_abbrev)
+        self.assertFalse(citystate.state_is_abbrev(citystate.state))
         citystate = CityState(city="New York", state=None)
-        self.assertFalse(citystate.state_is_abbrev)
+        self.assertFalse(citystate.state_is_abbrev(citystate.state))
 
     def test__state_abbrev(self):
         citystate = CityState(city="New York", state="NY")
@@ -205,12 +205,12 @@ class TestCityState(unittest.TestCase):
 
     def test__state_is_full_name(self):
         citystate = CityState(city="New York", state="NY")
-        self.assertFalse(citystate.state_is_full_name)
+        self.assertFalse(citystate.state_is_full_name(state=citystate.state))
         citystate = CityState(city="New York", state="New York")
-        self.assertTrue(citystate.state_is_full_name)
+        self.assertTrue(citystate.state_is_full_name(state=citystate.state))
         citystate = CityState(city="New York", state=None)
-        self.assertFalse(citystate.state_is_full_name)
-        
+        self.assertFalse(citystate.state_is_full_name(state=citystate.state))
+
     def test__state_full(self):
         citystate = CityState(city="New York", state="NY")
         self.assertEqual(citystate.state_full, "New York")
@@ -218,3 +218,16 @@ class TestCityState(unittest.TestCase):
         self.assertEqual(citystate.state_full, "New York")
         citystate = CityState(city="New York", state=None)
         self.assertEqual(citystate.state_full, None)
+
+    def test__state_matches(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertTrue(citystate.state_matches("NY"))
+        self.assertTrue(citystate.state_matches("New York"))
+        self.assertFalse(citystate.state_matches("New Jersey"))
+        self.assertFalse(citystate.state_matches(None))
+
+    def test__citystate_matches(self):
+        citystate = CityState(city="New York", state="NY")
+        self.assertTrue(citystate.citystate_matches(CityState(city="New York", state="NY")))
+        self.assertTrue(citystate.citystate_matches(CityState(city="New York", state="New York")))
+        self.assertFalse(citystate.citystate_matches(CityState(city="New Jersey", state="NY")))

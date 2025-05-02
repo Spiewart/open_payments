@@ -61,7 +61,9 @@ def load_all_MD_DO_payments_csvs() -> pd.DataFrame:
                 continue
 
             payments = pd.read_csv(f"{path}/{file_name}")
-
+            print(payments.columsn)
+            print(payments.columns[6:9])
+            print(payments.dtypes[6:9])
             all_payments = pd.concat([all_payments, payments], ignore_index=True)
 
     return all_payments

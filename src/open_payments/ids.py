@@ -695,19 +695,15 @@ class ConflictedPaymentIDs(PaymentIDs):
     ) -> bool:
 
         return any(
-            citystate.state in [
-                citystate.state for citystate in payment_citystates
-                if (
-                    pd.notna(citystate)
-                    and pd.notna(citystate.state)
-                )
-            ] for citystate in [
-                citystate for citystate in conflict_citystates
-                if (
-                    pd.notna(citystate)
-                    and pd.notna(citystate.state)
-                )
-            ]
+            payment_citystate.state_matches(conflict_citystate.state)
+            for payment_citystate in payment_citystates
+            for conflict_citystate in conflict_citystates
+            if (
+                pd.notna(payment_citystate)
+                and pd.notna(conflict_citystate)
+                and pd.notna(payment_citystate.state)
+                and pd.notna(conflict_citystate.state)
+            )
         )
 
     @classmethod
@@ -734,13 +730,15 @@ class ConflictedPaymentIDs(PaymentIDs):
     ) -> bool:
 
         return any(
-            citystate in [
-                citystate for citystate in payment_citystates
-                if pd.notna(citystate)
-            ] for citystate in [
-                citystate for citystate in conflict_citystates
-                if pd.notna(citystate)
-            ]
+            payment_citystate.citystate_matches(
+                citystate=conflict_citystate
+            )
+            for payment_citystate in payment_citystates
+            for conflict_citystate in conflict_citystates
+            if (
+                pd.notna(payment_citystate)
+                and pd.notna(conflict_citystate)
+            )
         )
 
     @classmethod
