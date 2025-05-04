@@ -1,5 +1,5 @@
-from typing import Union
 import unittest
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -460,7 +460,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         )
         self.assertIsInstance(match, bool)
         self.assertTrue(match)
-        
+
     def test__filter_by_citystate(self):
 
         fake_row = pd.Series({
@@ -701,4 +701,23 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertNotEqual(
             self.reader.unique_ids.iloc[0]["profile_id"],
             7
+        )
+
+    def test__get_best_highest_matches(self):
+        highest_matches = pd.DataFrame(
+            {
+                "filters": [
+                    [PaymentFilters.LASTNAME, PaymentFilters.MIDDLE_INITIAL, PaymentFilters.CREDENTIAL],
+                    [PaymentFilters.FIRSTNAME, PaymentFilters.STATE],
+                    [PaymentFilters.FIRSTNAME],
+                ]
+            }
+        )
+        best_highest_match = ConflictedPaymentIDs.get_best_highest_matches(
+            highest_matches,
+        )
+        self.assertEqual(len(best_highest_match), 1)
+        self.assertEqual(
+            best_highest_match.iloc[0]["filters"],
+            [PaymentFilters.FIRSTNAME, PaymentFilters.STATE]
         )

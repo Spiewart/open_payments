@@ -173,6 +173,7 @@ class ConflictedPaymentIDs(PaymentIDs):
         self.conflicteds = conflicteds
         self.payments = payments
         self.unmatched = pd.DataFrame()
+        self.unmatched_options: list[pd.DataFrame] = []
         self.unique_ids = pd.DataFrame()
         self.filters = (
             filters if filters else [
@@ -292,6 +293,10 @@ class ConflictedPaymentIDs(PaymentIDs):
                 print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
                 self.add_unique_id(best_highest_matches)
             else:
+                self.unmatched_options.append(
+                    best_highest_matches
+                )
+                
                 unmatched_conflict = self.conflicteds[
                     self.conflicteds["provider_pk"] == conflicted["provider_pk"]
                 ]
@@ -436,8 +441,8 @@ class ConflictedPaymentIDs(PaymentIDs):
 
         return payments_x_conflicted
 
+    @staticmethod
     def get_best_highest_matches(
-        self,
         highest_matches: pd.DataFrame,
     ) -> pd.DataFrame:
         """Method for re-filtering a DataFrame of highest payment matches for
