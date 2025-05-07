@@ -99,6 +99,7 @@ class PaymentFilters(StrEnum):
 
     LASTNAME = "LASTNAME"
     FIRSTNAME = "FIRSTNAME"
+    FIRSTNAME_PARTIAL = "FIRSTNAME_PARTIAL"  # Matches first name with a partial match
     CREDENTIAL = "CREDENTIAL"
     SPECIALTY = "SPECIALTY"
     SUBSPECIALTY = "SUBSPECIALTY"
@@ -173,7 +174,7 @@ class ConflictedPaymentIDs(PaymentIDs):
         self.conflicteds = conflicteds
         self.payments = payments
         self.unmatched = pd.DataFrame()
-        self.unmatched_options: list[pd.DataFrame] = []
+        self.unmatched_options: pd.DataFrame = pd.DataFrame()
         self.unique_ids = pd.DataFrame()
         self.filters = (
             filters if filters else [
@@ -293,10 +294,14 @@ class ConflictedPaymentIDs(PaymentIDs):
                 print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
                 self.add_unique_id(best_highest_matches)
             else:
-                self.unmatched_options.append(
-                    best_highest_matches
-                )
-                
+                if not best_highest_matches.empty:
+                    self.unmatched_options = pd.concat(
+                        [self.unmatched_options, best_highest_matches]
+                    )
+                else:
+                    self.unmatched_options = pd.concat(
+                        [self.unmatched_options, highest_matches]
+                    )
                 unmatched_conflict = self.conflicteds[
                     self.conflicteds["provider_pk"] == conflicted["provider_pk"]
                 ]
@@ -449,27 +454,31 @@ class ConflictedPaymentIDs(PaymentIDs):
         the conflicted. Preferentially selects payments for which there is a
         first name match, then city/state."""
 
-        highest_matches = highest_matches[
+        refined_matches = highest_matches[
             highest_matches["filters"].apply(
                 lambda x: PaymentFilters.FIRSTNAME in x
             )
         ]
 
-        if not highest_matches.empty:
-            if highest_matches.shape[0] == 1:
-                return highest_matches
-            else:
-                highest_matches = highest_matches[
-                    highest_matches["filters"].apply(
-                        lambda x: (
-                            PaymentFilters.CITYSTATE in x
-                            or PaymentFilters.STATE in x
-                            or PaymentFilters.CITY in x
-                        )
-                    )
-                ]
+        if refined_matches.empty:
+            refined_matches = highest_matches[
+                highest_matches["filters"].apply(
+                    lambda x: PaymentFilters.FIRSTNAME_PARTIAL in x
+                )
+            ]
 
-        return highest_matches
+        if not refined_matches.empty and refined_matches.shape[0] > 1:
+            refined_matches = refined_matches[
+                refined_matches["filters"].apply(
+                    lambda x: (
+                        PaymentFilters.CITYSTATE in x
+                        or PaymentFilters.STATE in x
+                        or PaymentFilters.CITY in x
+                    )
+                )
+            ]
+
+        return refined_matches
 
     @classmethod
     def filter_by_credential(
@@ -491,7 +500,6 @@ class ConflictedPaymentIDs(PaymentIDs):
     def filter_by_firstname(
         cls,
         payments_x_conflicted: pd.Series,
-        strict: bool = False,
     ) -> bool:
         """Checks if a payment_x_conflicted series has a match
         in its first_name and conflict_first_name columns and adds a
@@ -501,18 +509,31 @@ class ConflictedPaymentIDs(PaymentIDs):
             pd.notna(payments_x_conflicted["first_name"])
             and pd.notna(payments_x_conflicted["conflict_first_name"])
             and (
-                payments_x_conflicted["first_name"]
-                == payments_x_conflicted["conflict_first_name"]
-                if strict
-                else (
-                    str_in_str(
+                payments_x_conflicted["first_name"].lower()
+                == payments_x_conflicted["conflict_first_name"].lower()
+            )
+        )
+
+    @classmethod
+    def filter_by_firstname_partial(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Checks if a payment_x_conflicted series has a match
+        in its first_name and conflict_first_name columns and adds a
+        filter to the filters column to indicate as such if so."""
+
+        return (
+            pd.notna(payments_x_conflicted["first_name"])
+            and pd.notna(payments_x_conflicted["conflict_first_name"])
+            and (
+                str_in_str(
                         payments_x_conflicted["first_name"],
                         payments_x_conflicted["conflict_first_name"]
                     )
-                    or str_in_str(
-                        payments_x_conflicted["conflict_first_name"],
-                        payments_x_conflicted["first_name"]
-                    )
+                or str_in_str(
+                    payments_x_conflicted["conflict_first_name"],
+                    payments_x_conflicted["first_name"]
                 )
             )
         )
