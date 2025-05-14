@@ -1,3 +1,13 @@
+# Visual Studio Code workspace files
 .vscode/
+.code-workspace
 
-*.code-workspace    
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Python cache
+__pycache__/
+*.py[cod]
