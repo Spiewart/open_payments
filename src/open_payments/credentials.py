@@ -162,10 +162,13 @@ class PaymentCredentials(ReadPayments):
         return self.ownership_payments
 
 
-def convert_credentials(credentials: str) -> list[Credentials]:
+def convert_credentials(credentials: str) -> Union[list[Credentials], None]:
     """Convert a string representation of a list of Credentials objects
     to a list of Credentials objects."""
 
+    if not credentials:
+        return None
+    
     converted = []
 
     credentials = re.findall(r": '(.*?)'", credentials)

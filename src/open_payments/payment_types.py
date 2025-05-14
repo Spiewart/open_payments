@@ -10,18 +10,40 @@ class PaymentTypes(ReadPayments):
 
     def __init__(
         self,
-        payment_classes: Union[
-            list[Literal["general", "ownership", "research"]],
-            Literal["general", "ownership", "research"],
-            None,
-        ] = None,
-        payments_folder: str = open_payments_directory(),
+        **kwargs
     ):
         super().__init__(
-            payment_classes=payment_classes,
-            payments_folder=payments_folder,
-            nrows=None,
+            **kwargs
         )
+
+    @property
+    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols = super().general_columns
+        cols.update({
+            "Form_of_Payment_or_Transfer_of_Value": ("form", str),
+            "Nature_of_Payment_or_Transfer_of_Value": ("nature", str),
+        })
+        return cols
+
+    @property
+    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols = super().ownership_columns
+        cols.update({
+                "Terms_of_Interest": ("payment_type", str),
+        })
+        return cols
+
+    @property
+    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols = super().research_columns
+
+        cols.update(
+            self.general_columns
+        )
+        return cols
 
     def create_payment_types_excel(self) -> None:
         data_directory = open_payments_directory()
@@ -54,9 +76,8 @@ class PaymentTypes(ReadPayments):
 
     def get_types_of_general_payments(self) -> pd.DataFrame:
         if self.general_payments.empty:
-            self.general_payments = self.read_general_payments_csvs(
-                usecols=self.general_columns,
-                dtype=self.general_dtype,
+            self.general_payments = self.read_payments_csvs(
+                payment_class="general",
             )
 
         unique_nature_of_payments = self.general_payments["Nature_of_Payment_or_Transfer_of_Value"].unique()
@@ -76,9 +97,8 @@ class PaymentTypes(ReadPayments):
 
     def get_types_of_ownership_payments(self) -> pd.DataFrame:
         if self.ownership_payments.empty:
-            self.ownership_payments = self.read_ownership_payments_csvs(
-                usecols=self.ownership_columns,
-                dtype=self.ownership_dtype,
+            self.ownership_payments = self.read_payments_csvs(
+                payment_class="ownership",
             )
 
         unique_terms_of_interest = self.ownership_payments["Terms_of_Interest"].unique()
@@ -98,9 +118,8 @@ class PaymentTypes(ReadPayments):
 
     def get_types_of_research_payments(self) -> pd.DataFrame:
         if self.research_payments.empty:
-            self.research_payments = self.read_research_payments_csvs(
-                usecols=self.research_columns,
-                dtype=self.research_dtype,
+            self.research_payments = self.read_payments_csvs(
+                payment_class="research",
             )
 
         unique_forms_of_payment = self.research_payments["Form_of_Payment_or_Transfer_of_Value"].unique()
@@ -117,9 +136,3 @@ class PaymentTypes(ReadPayments):
         unique_forms_of_payment.reset_index(drop=True, inplace=True)
 
         return unique_forms_of_payment
-
-
-def general_payment_types() -> None:
-    """Creates an Excel file containing unique payment types."""
-
-    PaymentTypes(payment_classes="general").create_payment_types_excel()

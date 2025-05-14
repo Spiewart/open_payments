@@ -10,11 +10,11 @@ def get_file_suffix(
             list[Literal[2020, 2021, 2022, 2023]],
             Literal[2020, 2021, 2022, 2023],
         ],
-        payment_classes: Union[
-            list[Literal["general", "ownership", "research"]],
-            Literal["general", "ownership", "research"],
-            None,
-        ],
+    payment_classes: Union[
+        list[Literal["general", "ownership", "research"]],
+        Literal["general", "ownership", "research"],
+        None,
+    ],
 ) -> str:
     if not isinstance(payment_classes, list):
         payment_classes = [payment_classes] if payment_classes is not None else []

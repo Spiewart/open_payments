@@ -18,6 +18,14 @@ class Credentials(StrEnum):
     ANESTHESIOLOGIST_ASSISTANT = "Anesthesiologist Assistant"
 
 
+class GeneralPaymentTypes(StrEnum):
+    pass
+
+
+class ResearchPaymentTypes(StrEnum):
+    pass
+
+
 class States(StrEnum):
     """StrEnum class for the different states in the United States.
     Member name is the state's abbreviation, value is the full name."""

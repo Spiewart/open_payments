@@ -1,3 +1,4 @@
+import re
 from enum import StrEnum
 from itertools import combinations
 from typing import Literal, Union
@@ -100,6 +101,7 @@ class PaymentFilters(StrEnum):
     LASTNAME = "LASTNAME"
     FIRSTNAME = "FIRSTNAME"
     FIRSTNAME_PARTIAL = "FIRSTNAME_PARTIAL"  # Matches first name with a partial match
+    FIRST_MIDDLE_NAME = "FIRST_MIDDLE_NAME"  # Matches first name and middle name
     CREDENTIAL = "CREDENTIAL"
     SPECIALTY = "SPECIALTY"
     SUBSPECIALTY = "SUBSPECIALTY"
@@ -257,16 +259,51 @@ class ConflictedPaymentIDs(PaymentIDs):
                 axis=1,
             )
 
-        # Get the rows with the most filter matches
-        highest_matches = merged[
-            merged["filters"].apply(
-                lambda x: len(x) == max(
-                    merged["filters"].apply(len)
-                )
+        first_name_matches = self.get_firstname_matches(merged)
+
+        # Preferentially filter for first name matches
+        # Get the rows with the most filters
+        if not first_name_matches.empty:
+            middle_name_matches = self.get_middlename_matches(
+                first_name_matches
             )
-        ]
+            if not middle_name_matches.empty:
+                # Get the rows with the most filters
+                highest_matches = middle_name_matches[
+                    middle_name_matches["filters"].apply(
+                        lambda x: len(x) == max(
+                            middle_name_matches["filters"].apply(len)
+                        )
+                    )
+                ]
+            else:
+                # Get the rows with the most filters
+                highest_matches = first_name_matches[
+                    first_name_matches["filters"].apply(
+                        lambda x: len(x) == max(
+                            first_name_matches["filters"].apply(len)
+                        )
+                    )
+                ]
+
+        else:
+            highest_matches = merged[
+                merged["filters"].apply(
+                    lambda x: len(x) == max(
+                        merged["filters"].apply(len)
+                    )
+                )
+            ]
+
         # Of the highest matches, reduce the DataFrame to only
         # have a single payment from each profile_id
+        # Keep the rows for each profile_id that have the fewest na columns
+
+        highest_matches = highest_matches.sort_values(
+            by=["profile_id", "middle_name"],
+            ascending=[True, True],
+        )
+
         highest_matches = highest_matches.drop_duplicates(
             subset="profile_id", keep="first"
         )
@@ -283,7 +320,7 @@ class ConflictedPaymentIDs(PaymentIDs):
                 "Attempting to find a single good match..."
             )
 
-            best_highest_matches = self.get_best_highest_matches(
+            best_highest_matches = self.get_citystate_matches(
                 highest_matches
             )
 
@@ -332,13 +369,33 @@ class ConflictedPaymentIDs(PaymentIDs):
         # multiple last names, so we can check if the conflicted last
         # name is in the payments last name
         if merged_payments.empty:
+            # Split the last name by hyphen and whitespace
+            conflicted_last_names = re.split(
+                r"-|\s+",
+                conflicted["last_name"].lower()
+            )
+
+            # Check if any of potentially multiple last names
+            # are in the payments last name
             merged_payments = self.payments[
                 self.payments["last_name"].str.contains(
-                    conflicted["last_name"],
+                    '|'.join(conflicted_last_names),
                     na=False,
                     case=False,
                 )
             ]
+            if not merged_payments.empty:
+                # If there are multiple last names, select payments
+                # that match all the last names to avoid false positives
+                double_matches = merged_payments[
+                    merged_payments["last_name"].str.contains(
+                        '&'.join(conflicted_last_names),
+                        na=False,
+                        case=False,
+                    )
+                ]
+                if not double_matches.empty:
+                    merged_payments = double_matches
 
         if merged_payments.empty:
             return merged_payments
@@ -447,34 +504,85 @@ class ConflictedPaymentIDs(PaymentIDs):
         return payments_x_conflicted
 
     @staticmethod
-    def get_best_highest_matches(
-        highest_matches: pd.DataFrame,
+    def get_citystate_matches(
+        payments_x_conflicteds: pd.DataFrame,
     ) -> pd.DataFrame:
-        """Method for re-filtering a DataFrame of highest payment matches for
-        the conflicted. Preferentially selects payments for which there is a
-        first name match, then city/state."""
+        """Filters a DataFrame for city/state matches in order of priority:
+        1. City/State match
+        2. State match
+        3. City match
+    """
+        refined_matches = payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: PaymentFilters.CITYSTATE in x
+            )
+        ]
 
-        refined_matches = highest_matches[
-            highest_matches["filters"].apply(
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.STATE in x
+                )
+            ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.CITY in x
+                )
+            ]
+
+        return refined_matches
+
+    @staticmethod
+    def get_firstname_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters a DataFrame for first name matches in order of priority:
+        1. First name match
+        2. First name partial match
+        3. First name and middle name match
+    """
+        refined_matches = payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
                 lambda x: PaymentFilters.FIRSTNAME in x
             )
         ]
 
         if refined_matches.empty:
-            refined_matches = highest_matches[
-                highest_matches["filters"].apply(
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
                     lambda x: PaymentFilters.FIRSTNAME_PARTIAL in x
                 )
             ]
 
-        if not refined_matches.empty and refined_matches.shape[0] > 1:
-            refined_matches = refined_matches[
-                refined_matches["filters"].apply(
-                    lambda x: (
-                        PaymentFilters.CITYSTATE in x
-                        or PaymentFilters.STATE in x
-                        or PaymentFilters.CITY in x
-                    )
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.FIRST_MIDDLE_NAME in x
+                )
+            ]
+
+        return refined_matches
+
+    @staticmethod
+    def get_middlename_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters a DataFrame for middle name matches in order of priority:
+        1. Middle name match
+        2. Middle initial match
+    """
+        refined_matches = payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: PaymentFilters.MIDDLENAME in x
+            )
+        ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.MIDDLE_INITIAL in x
                 )
             ]
 
@@ -505,7 +613,7 @@ class ConflictedPaymentIDs(PaymentIDs):
         in its first_name and conflict_first_name columns and adds a
         filter to the filters column to indicate as such if so."""
 
-        return (
+        value = (
             pd.notna(payments_x_conflicted["first_name"])
             and pd.notna(payments_x_conflicted["conflict_first_name"])
             and (
@@ -513,6 +621,18 @@ class ConflictedPaymentIDs(PaymentIDs):
                 == payments_x_conflicted["conflict_first_name"].lower()
             )
         )
+        # Full match should supercede a partial match or first/middle name match
+        if value:
+            if PaymentFilters.FIRSTNAME_PARTIAL in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.FIRSTNAME_PARTIAL
+                )
+            if PaymentFilters.FIRST_MIDDLE_NAME in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.FIRST_MIDDLE_NAME
+                )
+
+        return value
 
     @classmethod
     def filter_by_firstname_partial(
@@ -523,9 +643,12 @@ class ConflictedPaymentIDs(PaymentIDs):
         in its first_name and conflict_first_name columns and adds a
         filter to the filters column to indicate as such if so."""
 
-        return (
+        value = (
             pd.notna(payments_x_conflicted["first_name"])
             and pd.notna(payments_x_conflicted["conflict_first_name"])
+            and PaymentFilters.FIRSTNAME not in payments_x_conflicted[
+                "filters"
+            ]
             and (
                 str_in_str(
                         payments_x_conflicted["first_name"],
@@ -534,6 +657,60 @@ class ConflictedPaymentIDs(PaymentIDs):
                 or str_in_str(
                     payments_x_conflicted["conflict_first_name"],
                     payments_x_conflicted["first_name"]
+                )
+            )
+        )
+        # Partial match should supercede first / middle name match
+        if value and PaymentFilters.FIRST_MIDDLE_NAME in payments_x_conflicted["filters"]:
+            payments_x_conflicted["filters"].remove(
+                PaymentFilters.FIRST_MIDDLE_NAME
+            )
+
+        return value
+
+    @classmethod
+    def filter_by_first_middle_name(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Checks if a payment_x_conflicted series has a match
+        in its OpenPayments first_name and any of its conflicts
+        middle name columns, or vice versa (conflict_first_name
+        and OpenPayments middle_name)."""
+
+        return (
+            PaymentFilters.FIRSTNAME not in payments_x_conflicted[
+                "filters"
+            ] and
+            PaymentFilters.FIRSTNAME_PARTIAL not in payments_x_conflicted[
+                "filters"
+            ]
+        ) and (
+            # Conflict first_name and OpenPayments middle_name
+            (
+                pd.notna(payments_x_conflicted["middle_name"])
+                and pd.notna(payments_x_conflicted["conflict_first_name"])
+                and (
+                    payments_x_conflicted["middle_name"].lower()
+                    == payments_x_conflicted["conflict_first_name"].lower()
+                )
+            )
+            # Conflict middle_names and OpenPayments first_name
+            or (
+                (
+                    pd.notna(payments_x_conflicted["conflict_middle_name_1"])
+                    and pd.notna(payments_x_conflicted["first_name"])
+                    and (
+                        payments_x_conflicted["first_name"].lower()
+                        == payments_x_conflicted["conflict_middle_name_1"].lower()
+                    )
+                ) or (
+                    pd.notna(payments_x_conflicted["conflict_middle_name_2"])
+                    and pd.notna(payments_x_conflicted["first_name"])
+                    and (
+                        payments_x_conflicted["first_name"].lower()
+                        == payments_x_conflicted["conflict_middle_name_2"].lower()
+                    )
                 )
             )
         )
@@ -565,21 +742,50 @@ class ConflictedPaymentIDs(PaymentIDs):
         """Checks if the specialtys exist and match."""
 
         return any(
-            spec.specialty in [
-                spec.specialty for spec in payment_specialtys if (
-                    pd.notna(spec)
-                    and pd.notna(
-                        spec.specialty
-                    )
-                )
-            ] for spec in [
-                spec for spec in conflict_specialtys if (
-                    pd.notna(spec)
-                    and pd.notna(
-                        spec.specialty
-                    )
-                )
-            ]
+            cls.specialty_str_matcher(
+                payment_specialty=payment_specialty.specialty,
+                conflict_specialty=conflict_specialty.specialty,
+            ) for payment_specialty in payment_specialtys
+            for conflict_specialty in conflict_specialtys
+        )
+
+    @staticmethod
+    def specialty_str_matcher(
+        payment_specialty: Union[str, None],
+        conflict_specialty: Union[str, None],
+    ) -> bool:
+        """Checks if the specialtys exist and match."""
+
+        payment_specialty = payment_specialty.lower() if pd.notna(
+            payment_specialty
+        ) else None
+        conflict_specialty = conflict_specialty.lower() if pd.notna(
+            conflict_specialty
+        ) else None
+
+        # If either specialty is None, return False
+        if payment_specialty is None or conflict_specialty is None:
+            return False
+        # If both specialties are the same, return True
+        elif payment_specialty == conflict_specialty:
+            return True
+
+        payment_specialty_strs = payment_specialty.split(" ")
+
+        conflict_specialty_strs = conflict_specialty.split(" ")
+
+        # Remove "medicine" from the specialty strings, as it is non-specific
+        if "medicine" in payment_specialty_strs:
+            payment_specialty_strs.remove("medicine")
+        if "medicine" in conflict_specialty_strs:
+            conflict_specialty_strs.remove("medicine")
+
+        return any(
+            payment_str in conflict_specialty_strs
+            for payment_str in payment_specialty_strs
+        ) or any(
+            conflict_str in payment_specialty_strs
+            for conflict_str in conflict_specialty_strs
         )
 
     @classmethod
@@ -606,21 +812,11 @@ class ConflictedPaymentIDs(PaymentIDs):
     ) -> bool:
 
         return any(
-            spec.subspecialty in [
-                spec.subspecialty for spec in payment_specialtys if (
-                    pd.notna(spec)
-                    and pd.notna(
-                        spec.subspecialty
-                    )
-                )
-            ] for spec in [
-                spec for spec in conflict_specialtys if (
-                    pd.notna(spec)
-                    and pd.notna(
-                        spec.subspecialty
-                    )
-                )
-            ]
+            cls.specialty_str_matcher(
+                payment_specialty=payment_specialty.subspecialty,
+                conflict_specialty=conflict_specialty.subspecialty,
+            ) for payment_specialty in payment_specialtys
+            for conflict_specialty in conflict_specialtys
         )
 
     @classmethod
@@ -647,11 +843,17 @@ class ConflictedPaymentIDs(PaymentIDs):
     ) -> bool:
 
         return any(
-            spec in [
-                spec for spec in payment_specialtys if pd.notna(spec)
-            ] for spec in [
-                spec for spec in conflict_specialtys if pd.notna(spec)
-            ]
+            (
+                cls.specialty_str_matcher(
+                    payment_specialty=payment_specialty.specialty,
+                    conflict_specialty=conflict_specialty.specialty,
+                ) and cls.specialty_str_matcher(
+                    payment_specialty=payment_specialty.subspecialty,
+                    conflict_specialty=conflict_specialty.subspecialty,
+                )
+                for payment_specialty in payment_specialtys
+                for conflict_specialty in conflict_specialtys
+            )
         )
 
     @classmethod

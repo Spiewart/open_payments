@@ -273,6 +273,19 @@ class TestConflictedPaymentIDs(unittest.TestCase):
 
         self.assertEqual(len(merged), 4)
 
+    def test__merge_by_lastname_two_lastnames(self):
+        conflicteds = pd.DataFrame({
+            "provider_pk": [11],
+            "first_name": ["John"],
+            "last_name": ["Doe Smith"],
+        })
+
+        merged = self.reader.merge_by_last_name(
+            conflicted=conflicteds.iloc[0]
+        )
+        self.assertIsInstance(merged, pd.DataFrame)
+        self.assertEqual(len(merged), 2)
+
     def test__filter_by_credential(self):
         fake_row = pd.Series({
             "provider_pk": 1,
@@ -352,6 +365,36 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertIsInstance(match, bool)
         self.assertTrue(match)
 
+    def test__filter_by_specialty_partial(self):
+        fake_row = pd.Series({
+            "specialtys": [
+                Specialtys(specialty="Family Medicine", subspecialty=None)
+            ],
+            "conflict_specialtys": [
+                Specialtys(specialty="Family", subspecialty=None)
+            ]
+        })
+
+        self.assertTrue(
+            ConflictedPaymentIDs.filter_by_specialty(
+                fake_row,
+            )
+        )
+
+        fake_row_reverse = pd.Series({
+            "specialtys": [
+                Specialtys(specialty="Family", subspecialty=None)
+            ],
+            "conflict_specialtys": [
+                Specialtys(specialty="Family Medicine", subspecialty=None)
+            ]
+        })
+        self.assertTrue(
+            ConflictedPaymentIDs.filter_by_specialty(
+                fake_row_reverse,
+            )
+        )
+        
     def test__filter_by_subspecialty(self):
         fake_row = pd.Series({
             "provider_pk": 1,
@@ -701,23 +744,4 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertNotEqual(
             self.reader.unique_ids.iloc[0]["profile_id"],
             7
-        )
-
-    def test__get_best_highest_matches(self):
-        highest_matches = pd.DataFrame(
-            {
-                "filters": [
-                    [PaymentFilters.LASTNAME, PaymentFilters.MIDDLE_INITIAL, PaymentFilters.CREDENTIAL],
-                    [PaymentFilters.FIRSTNAME, PaymentFilters.STATE],
-                    [PaymentFilters.FIRSTNAME],
-                ]
-            }
-        )
-        best_highest_match = ConflictedPaymentIDs.get_best_highest_matches(
-            highest_matches,
-        )
-        self.assertEqual(len(best_highest_match), 1)
-        self.assertEqual(
-            best_highest_match.iloc[0]["filters"],
-            [PaymentFilters.FIRSTNAME, PaymentFilters.STATE]
         )
