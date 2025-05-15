@@ -1,11 +1,11 @@
 import re
-from enum import StrEnum
 from typing import Union
 
 import pandas as pd
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
+from .choices import PaymentFilters
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
@@ -26,7 +26,45 @@ class Specialtys(BaseModel):
         return self
 
 
-class PaymentSpecialtys(ReadPayments):
+class SpecialtysMixin:
+
+    @property
+    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[str, tuple[str, Union[str, int]]] = super().general_columns
+        cols.update({
+                "Covered_Recipient_Specialty_1": ("specialty_1", str),
+                "Covered_Recipient_Specialty_2": ("specialty_2", str),
+                "Covered_Recipient_Specialty_3": ("specialty_3", str),
+                "Covered_Recipient_Specialty_4": ("specialty_4", str),
+                "Covered_Recipient_Specialty_5": ("specialty_5", str),
+                "Covered_Recipient_Specialty_6": ("specialty_6", str),
+        })
+        return cols
+
+    @property
+    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[
+            str, tuple[str, Union[str, int]]
+        ] = super().ownership_columns
+        cols.update({
+                "Physician_Specialty": ("specialty_1", str),
+        })
+        return cols
+
+    @property
+    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[str, tuple[str, Union[str, int]]] = super().research_columns
+
+        cols.update(
+            self.general_columns
+        )
+        return cols
+
+
+class PaymentSpecialtys(ReadPayments, SpecialtysMixin):
 
     def create_unique_specialtys_excel(self, path: Union[str, None] = None) -> None:
         path = open_payments_directory() if path is None else path
@@ -91,39 +129,6 @@ class PaymentSpecialtys(ReadPayments):
         all_specialtys = all_specialtys.dropna()
 
         return all_specialtys.reset_index(drop=True)
-
-    @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().general_columns
-        cols.update({
-                "Covered_Recipient_Specialty_1": ("specialty_1", str),
-                "Covered_Recipient_Specialty_2": ("specialty_2", str),
-                "Covered_Recipient_Specialty_3": ("specialty_3", str),
-                "Covered_Recipient_Specialty_4": ("specialty_4", str),
-                "Covered_Recipient_Specialty_5": ("specialty_5", str),
-                "Covered_Recipient_Specialty_6": ("specialty_6", str),
-        })
-        return cols
-
-    @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().ownership_columns
-        cols.update({
-                "Physician_Specialty": ("specialty_1", str),
-        })
-        return cols
-
-    @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().research_columns
-
-        cols.update(
-            self.general_columns
-        )
-        return cols
 
     @classmethod
     def get_all_specialtys(cls, df: pd.DataFrame) -> pd.Series:
@@ -286,3 +291,175 @@ def unique_specialties() -> None:
     """Creates an Excel file containing unique specialties."""
 
     PaymentSpecialtys(nrows=None, years=2023).create_unique_specialtys_excel()
+
+
+class PaymentIDsSpecialtys(SpecialtysMixin):
+    """Filters OpenPayments payments by specialty."""
+
+    @property
+    def filters(self) -> list[PaymentFilters]:
+        filters: list[PaymentFilters] = super().filters
+        filters.append(PaymentFilters.SPECIALTY)
+        filters.append(PaymentFilters.SUBSPECIALTY)
+        filters.append(PaymentFilters.FULLSPECIALTY)
+        return filters
+
+    @classmethod
+    def filter_by_specialty(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Checks for specialty match between the payment and conflicted
+        provider. If there is a match, it appends the filter to the
+        filters list."""
+
+        return (
+            cls.payment_conflict_specialty_match(
+                payment_specialtys=payments_x_conflicted["specialtys"],
+                conflict_specialtys=payments_x_conflicted[
+                    "conflict_specialtys"
+                ],
+            )
+        )
+
+    @classmethod
+    def payment_conflict_specialty_match(
+        cls,
+        payment_specialtys: Union[list[PaymentSpecialtys], None],
+        conflict_specialtys: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+        """Checks if the specialtys exist and match."""
+
+        return any(
+            cls.specialty_str_matcher(
+                payment_specialty=payment_specialty.specialty,
+                conflict_specialty=conflict_specialty.specialty,
+            ) for payment_specialty in payment_specialtys
+            for conflict_specialty in conflict_specialtys
+        )
+
+    @staticmethod
+    def specialty_str_matcher(
+        payment_specialty: Union[str, None],
+        conflict_specialty: Union[str, None],
+    ) -> bool:
+        """Checks if the specialtys exist and match."""
+
+        payment_specialty = payment_specialty.lower() if pd.notna(
+            payment_specialty
+        ) else None
+        conflict_specialty = conflict_specialty.lower() if pd.notna(
+            conflict_specialty
+        ) else None
+
+        # If either specialty is None, return False
+        if payment_specialty is None or conflict_specialty is None:
+            return False
+        # If both specialties are the same, return True
+        elif payment_specialty == conflict_specialty:
+            return True
+
+        payment_specialty_strs = payment_specialty.split(" ")
+
+        conflict_specialty_strs = conflict_specialty.split(" ")
+
+        # Remove "medicine" from the specialty strings, as it is non-specific
+        if "medicine" in payment_specialty_strs:
+            payment_specialty_strs.remove("medicine")
+        if "medicine" in conflict_specialty_strs:
+            conflict_specialty_strs.remove("medicine")
+
+        return any(
+            payment_str in conflict_specialty_strs
+            for payment_str in payment_specialty_strs
+        ) or any(
+            conflict_str in payment_specialty_strs
+            for conflict_str in conflict_specialty_strs
+        )
+
+    @classmethod
+    def filter_by_subspecialty(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Filters by subspecialty."""
+
+        return (
+                cls.payment_conflict_subspecialty_match(
+                    payment_specialtys=payments_x_conflicted["specialtys"],
+                    conflict_specialtys=payments_x_conflicted[
+                        "conflict_specialtys"
+                    ],
+                )
+        )
+
+    @classmethod
+    def payment_conflict_subspecialty_match(
+        cls,
+        payment_specialtys: Union[list[PaymentSpecialtys], None],
+        conflict_specialtys: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+
+        return any(
+            cls.specialty_str_matcher(
+                payment_specialty=payment_specialty.subspecialty,
+                conflict_specialty=conflict_specialty.subspecialty,
+            ) for payment_specialty in payment_specialtys
+            for conflict_specialty in conflict_specialtys
+        )
+
+    @classmethod
+    def filter_by_fullspecialty(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Filters by full specialty."""
+
+        return (
+            cls.payment_conflict_full_specialty_match(
+                payment_specialtys=payments_x_conflicted["specialtys"],
+                conflict_specialtys=payments_x_conflicted[
+                    "conflict_specialtys"
+                ],
+            )
+        )
+
+    @classmethod
+    def payment_conflict_full_specialty_match(
+        cls,
+        payment_specialtys: Union[list[PaymentSpecialtys], None],
+        conflict_specialtys: Union[list[PaymentSpecialtys], None],
+    ) -> bool:
+
+        return any(
+            (
+                cls.specialty_str_matcher(
+                    payment_specialty=payment_specialty.specialty,
+                    conflict_specialty=conflict_specialty.specialty,
+                ) and cls.specialty_str_matcher(
+                    payment_specialty=payment_specialty.subspecialty,
+                    conflict_specialty=conflict_specialty.subspecialty,
+                )
+                for payment_specialty in payment_specialtys
+                for conflict_specialty in conflict_specialtys
+            )
+        )
+
+    def convert_merged_dtypes(
+        self,
+        merged: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Updates  payments and conflicteds columns into lists after
+        they are loaded as strs in CSVs and Excel files."""
+
+        merged = super().convert_merged_dtypes(merged)
+
+        merged["specialtys"] = merged["specialtys"].apply(
+            lambda x: convert_specialtys(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_specialtys"] = merged["conflict_specialtys"].apply(
+            lambda x: convert_specialtys(x) if isinstance(x, str) else x
+        )
+
+        return merged

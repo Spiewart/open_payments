@@ -18,12 +18,23 @@ class Credentials(StrEnum):
     ANESTHESIOLOGIST_ASSISTANT = "Anesthesiologist Assistant"
 
 
-class GeneralPaymentTypes(StrEnum):
-    pass
+class PaymentFilters(StrEnum):
+    """Enum class for the various stages at which a conflicted provider
+    can be identified from the list of unique OpenPayment IDs."""
 
-
-class ResearchPaymentTypes(StrEnum):
-    pass
+    LASTNAME = "LASTNAME"
+    FIRSTNAME = "FIRSTNAME"
+    FIRSTNAME_PARTIAL = "FIRSTNAME_PARTIAL"  # Matches first name with a partial match
+    FIRST_MIDDLE_NAME = "FIRST_MIDDLE_NAME"  # Matches first name and middle name
+    CREDENTIAL = "CREDENTIAL"
+    SPECIALTY = "SPECIALTY"
+    SUBSPECIALTY = "SUBSPECIALTY"
+    FULLSPECIALTY = "FULLSPECIALTY"  # Matches specialty and subspecialty
+    MIDDLE_INITIAL = "MIDDLE_INITIAL"
+    MIDDLENAME = "MIDDLENAME"
+    CITY = "CITY"
+    STATE = "STATE"
+    CITYSTATE = "CITYSTATE"  # Matches city and state
 
 
 class States(StrEnum):
@@ -81,3 +92,11 @@ class States(StrEnum):
     WV = "West Virginia"
     WI = "Wisconsin"
     WY = "Wyoming"
+
+
+class Unmatcheds(StrEnum):
+    """Enum class to represent the various ways a conflicted can
+    remain unmatched throughout / after the filtering process."""
+
+    NOLASTNAME = "NOLASTNAME"  # No matches for the last name in OpenPayments
+    UNFILTERABLE = "UNFILTERABLE"  # Multiple OpenPayments IDs that can't be matched

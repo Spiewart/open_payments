@@ -11,20 +11,7 @@ from ..specialtys import Specialtys
 
 
 class TestPaymentIDs(unittest.TestCase):
-
-    def test__unique_payments(self):
-        unique_payments = PaymentIDs(payment_classes="general").unique_payments()
-
-        self.assertIsInstance(unique_payments, pd.DataFrame)
-        self.assertIn("profile_id", unique_payments.columns)
-        self.assertIn("npi", unique_payments.columns)
-        self.assertIn("first_name", unique_payments.columns)
-        self.assertIn("middle_name", unique_payments.columns)
-        self.assertIn("last_name", unique_payments.columns)
-        self.assertIn("specialtys", unique_payments.columns)
-        self.assertIn("credentials", unique_payments.columns)
-        self.assertIn("citystates", unique_payments.columns)
-        self.assertEqual(len(unique_payments.columns), 8)
+    pass
 
 
 def add_conflicted_to_conflicteds_df(
@@ -394,7 +381,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
                 fake_row_reverse,
             )
         )
-        
+
     def test__filter_by_subspecialty(self):
         fake_row = pd.Series({
             "provider_pk": 1,

@@ -1,14 +1,53 @@
-import enum
-import pandas as pd
 import re
 from typing import Union
 
-from .choices import Credentials
+import pandas as pd
+
+from .choices import Credentials, PaymentFilters
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
-class PaymentCredentials(ReadPayments):
+class CredentialsMixin:
+    """Mixin class for credentials."""
+
+    @property
+    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[str, tuple[str, Union[str, int]]] = super().general_columns
+        cols.update({
+                "Covered_Recipient_Primary_Type_1": ("credential_1", str),
+                "Covered_Recipient_Primary_Type_2": ("credential_2", str),
+                "Covered_Recipient_Primary_Type_3": ("credential_3", str),
+                "Covered_Recipient_Primary_Type_4": ("credential_4", str),
+                "Covered_Recipient_Primary_Type_5": ("credential_5", str),
+                "Covered_Recipient_Primary_Type_6": ("credential_6", str),
+        })
+        return cols
+
+    @property
+    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[
+            str, tuple[str, Union[str, int]]
+        ] = super().ownership_columns
+        cols.update({
+                "Physician_Primary_Type": ("credential_1", str),
+        })
+        return cols
+
+    @property
+    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+
+        cols: dict[str, tuple[str, Union[str, int]]] = super().research_columns
+
+        cols.update(
+            self.general_columns
+        )
+        return cols
+
+
+class PaymentCredentials(ReadPayments, CredentialsMixin):
 
     def create_unique_credentials_excel(self, path: Union[str, None] = None) -> None:
         path = open_payments_directory() if path is None else path
@@ -55,39 +94,6 @@ class PaymentCredentials(ReadPayments):
         all_credentials = all_credentials.dropna()
 
         return all_credentials.reset_index(drop=True)
-
-    @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().general_columns
-        cols.update({
-                "Covered_Recipient_Primary_Type_1": ("credential_1", str),
-                "Covered_Recipient_Primary_Type_2": ("credential_2", str),
-                "Covered_Recipient_Primary_Type_3": ("credential_3", str),
-                "Covered_Recipient_Primary_Type_4": ("credential_4", str),
-                "Covered_Recipient_Primary_Type_5": ("credential_5", str),
-                "Covered_Recipient_Primary_Type_6": ("credential_6", str),
-        })
-        return cols
-
-    @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().ownership_columns
-        cols.update({
-                "Physician_Primary_Type": ("credential_1", str),
-        })
-        return cols
-
-    @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
-
-        cols = super().research_columns
-
-        cols.update(
-            self.general_columns
-        )
-        return cols
 
     @staticmethod
     def get_all_credentials(df: pd.DataFrame) -> pd.Series:
@@ -168,7 +174,7 @@ def convert_credentials(credentials: str) -> Union[list[Credentials], None]:
 
     if not credentials:
         return None
-    
+
     converted = []
 
     credentials = re.findall(r": '(.*?)'", credentials)
@@ -184,3 +190,51 @@ def unique_credentials() -> None:
     """Creates an Excel file containing unique credentials."""
 
     PaymentCredentials(nrows=None, years=2023).create_unique_credentials_excel()
+
+
+class PaymentIDsCredentials(CredentialsMixin):
+    """Filters OpenPayments payments by credentials."""
+
+    @property
+    def filters(self) -> list["PaymentFilters"]:
+        """Overwritten to add CREDENTIAL PaymentFilter to
+        the filters property."""
+
+        filters: list[PaymentFilters] = super().filters
+        filters.append(PaymentFilters.CREDENTIAL)
+        return filters
+
+    @classmethod
+    def filter_by_credential(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Checks if a payment_x_conflicted series has a match
+        in its credentials and conflict_credentials columns and adds a
+        filter to the filters column to indicate as such if so."""
+
+        return (
+            any(
+                cred in payments_x_conflicted["credentials"]
+                for cred in payments_x_conflicted["conflict_credentials"]
+            )
+        )
+
+    def convert_merged_dtypes(
+        self,
+        merged: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Updates  payments and conflicteds columns into lists after
+        they are loaded as strs in CSVs and Excel files."""
+
+        merged: pd.DataFrame = super().convert_merged_dtypes(merged)
+
+        merged["credentials"] = merged["credentials"].apply(
+            lambda x: convert_credentials(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_credentials"] = merged["conflict_credentials"].apply(
+            lambda x: convert_credentials(x) if isinstance(x, str) else x
+        )
+
+        return merged

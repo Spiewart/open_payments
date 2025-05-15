@@ -5,7 +5,7 @@ import pandas as pd
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
-from .choices import States
+from .choices import PaymentFilters, States
 from .read import ReadPayments
 
 
@@ -94,8 +94,7 @@ class CityState(BaseModel):
         return self
 
 
-class PaymentCityStates(ReadPayments):
-
+class CityStatesMixin:
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
 
@@ -130,6 +129,9 @@ class PaymentCityStates(ReadPayments):
             self.general_columns
         )
         return cols
+
+
+class PaymentCityStates(ReadPayments, CityStatesMixin):
 
     @classmethod
     def citystates(cls, payments: pd.DataFrame) -> pd.DataFrame:
@@ -223,3 +225,177 @@ def convert_citystates(citystates: str) -> list[CityState]:
         converted.append(citystate)
 
     return converted
+
+
+class PaymentIDsCityStates(CityStatesMixin):
+    """Filters OpenPayments payments by city and state."""
+
+    @property
+    def filters(self) -> list[PaymentFilters]:
+        """Adds city and state to the filters list."""
+        filters: list[PaymentFilters] = super().filters
+        filters.append(PaymentFilters.CITYSTATE)
+        filters.append(PaymentFilters.CITY)
+        filters.append(PaymentFilters.STATE)
+        return filters
+
+    @classmethod
+    def filter_by_city(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Filters by city."""
+
+        return (
+                cls.payment_conflict_city_match(
+                    payment_citystates=payments_x_conflicted["citystates"],
+                    conflict_citystates=payments_x_conflicted[
+                        "conflict_citystates"
+                    ],
+                )
+        )
+
+    @classmethod
+    def payment_conflict_city_match(
+        cls,
+        payment_citystates: Union[list[CityState], None],
+        conflict_citystates: Union[list[CityState], None],
+    ) -> bool:
+
+        return any(
+            citystate.city in [
+                citystate.city for citystate in payment_citystates
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(
+                        citystate.city
+                    )
+                )
+            ] for citystate in [
+                citystate for citystate in conflict_citystates
+                if (
+                    pd.notna(citystate)
+                    and pd.notna(
+                        citystate.city
+                    )
+                )
+            ]
+        )
+
+    @classmethod
+    def filter_by_state(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Filters by state."""
+
+        return (
+                cls.payment_conflict_state_match(
+                    payment_citystates=payments_x_conflicted["citystates"],
+                    conflict_citystates=payments_x_conflicted[
+                        "conflict_citystates"
+                    ],
+                )
+        )
+
+    @classmethod
+    def payment_conflict_state_match(
+        cls,
+        payment_citystates: Union[list[CityState], None],
+        conflict_citystates: Union[list[CityState], None],
+    ) -> bool:
+
+        return any(
+            payment_citystate.state_matches(conflict_citystate.state)
+            for payment_citystate in payment_citystates
+            for conflict_citystate in conflict_citystates
+            if (
+                pd.notna(payment_citystate)
+                and pd.notna(conflict_citystate)
+                and pd.notna(payment_citystate.state)
+                and pd.notna(conflict_citystate.state)
+            )
+        )
+
+    @classmethod
+    def filter_by_citystate(
+        cls,
+        payments_x_conflicted: pd.Series,
+    ) -> bool:
+        """Filters by city and state."""
+
+        return (
+            cls.payment_conflict_citystate_match(
+                payment_citystates=payments_x_conflicted["citystates"],
+                conflict_citystates=payments_x_conflicted[
+                    "conflict_citystates"
+                ],
+            )
+        )
+
+    @classmethod
+    def payment_conflict_citystate_match(
+        cls,
+        payment_citystates: Union[list[CityState], None],
+        conflict_citystates: Union[list[CityState], None],
+    ) -> bool:
+
+        return any(
+            payment_citystate.citystate_matches(
+                citystate=conflict_citystate
+            )
+            for payment_citystate in payment_citystates
+            for conflict_citystate in conflict_citystates
+            if (
+                pd.notna(payment_citystate)
+                and pd.notna(conflict_citystate)
+            )
+        )
+
+    @staticmethod
+    def get_citystate_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters a DataFrame for city/state matches in order of priority:
+        1. City/State match
+        2. State match
+        3. City match
+    """
+        refined_matches = payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: PaymentFilters.CITYSTATE in x
+            )
+        ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.STATE in x
+                )
+            ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.CITY in x
+                )
+            ]
+
+        return refined_matches
+
+    def convert_merged_dtypes(
+        self,
+        merged: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Updates  payments and conflicteds columns into lists after
+        they are loaded as strs in CSVs and Excel files."""
+
+        merged = super().convert_merged_dtypes(merged)
+        merged["citystates"] = merged["citystates"].apply(
+            lambda x: convert_citystates(x) if isinstance(x, str) else x
+        )
+
+        merged["conflict_citystates"] = merged["conflict_citystates"].apply(
+            lambda x: convert_citystates(x) if isinstance(x, str) else x
+        )
+        return merged
