@@ -1,12 +1,12 @@
 import re
-from typing import Union
+from typing import Type, Union
 
 import pandas as pd
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
 from .choices import PaymentFilters
-from .helpers import get_file_suffix, open_payments_directory
+from .helpers import ColumnMixin, get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
@@ -26,12 +26,12 @@ class Specialtys(BaseModel):
         return self
 
 
-class SpecialtysMixin:
+class SpecialtysMixin(ColumnMixin):
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[str, tuple[str, Union[str, int]]] = super().general_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().general_columns
         cols.update({
                 "Covered_Recipient_Specialty_1": ("specialty_1", str),
                 "Covered_Recipient_Specialty_2": ("specialty_2", str),
@@ -43,20 +43,18 @@ class SpecialtysMixin:
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[
-            str, tuple[str, Union[str, int]]
-        ] = super().ownership_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().ownership_columns
         cols.update({
                 "Physician_Specialty": ("specialty_1", str),
         })
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[str, tuple[str, Union[str, int]]] = super().research_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().research_columns
 
         cols.update(
             self.general_columns
@@ -275,9 +273,9 @@ def convert_specialtys(specialtys: str) -> list[Specialtys]:
 
     converted = []
 
-    specialtys = re.findall(r"Specialtys\(specialty='(.*?)', subspecialty=('.*?'|None)\)", specialtys)
+    specialtys_list = re.findall(r"Specialtys\(specialty='(.*?)', subspecialty=('.*?'|None)\)", specialtys)
 
-    for specialty in specialtys:
+    for specialty in specialtys_list:
         specialty = Specialtys(
             specialty=specialty[0],
             subspecialty=specialty[1].strip("'") if specialty[1] != 'None' else None,
@@ -313,7 +311,7 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
         provider. If there is a match, it appends the filter to the
         filters list."""
 
-        return (
+        value = (
             cls.payment_conflict_specialty_match(
                 payment_specialtys=payments_x_conflicted["specialtys"],
                 conflict_specialtys=payments_x_conflicted[
@@ -321,6 +319,12 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
                 ],
             )
         )
+
+        if value and PaymentFilters.FULLSPECIALTY not in payments_x_conflicted[
+            "filters"
+        ]:
+            return value
+        return False
 
     @classmethod
     def payment_conflict_specialty_match(
@@ -384,7 +388,7 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
     ) -> bool:
         """Filters by subspecialty."""
 
-        return (
+        value = (
                 cls.payment_conflict_subspecialty_match(
                     payment_specialtys=payments_x_conflicted["specialtys"],
                     conflict_specialtys=payments_x_conflicted[
@@ -392,6 +396,12 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
                     ],
                 )
         )
+
+        if value and PaymentFilters.FULLSPECIALTY not in payments_x_conflicted[
+            "filters"
+        ]:
+            return value
+        return False
 
     @classmethod
     def payment_conflict_subspecialty_match(
@@ -415,7 +425,7 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
     ) -> bool:
         """Filters by full specialty."""
 
-        return (
+        value = (
             cls.payment_conflict_full_specialty_match(
                 payment_specialtys=payments_x_conflicted["specialtys"],
                 conflict_specialtys=payments_x_conflicted[
@@ -423,6 +433,16 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
                 ],
             )
         )
+        if value:
+            if PaymentFilters.SPECIALTY in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.SPECIALTY,
+                )
+            if PaymentFilters.SUBSPECIALTY in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.SUBSPECIALTY,
+                )
+        return value
 
     @classmethod
     def payment_conflict_full_specialty_match(
@@ -463,3 +483,35 @@ class PaymentIDsSpecialtys(SpecialtysMixin):
         )
 
         return merged
+
+    @staticmethod
+    def get_specialty_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Filters a payments_x_conflicteds DataFrame by specialty
+        in order of priority:
+        1. Full specialty
+        2. Specialty
+        3. Subspecialty
+        """
+        refined_matches = payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: PaymentFilters.FULLSPECIALTY in x
+                )
+            ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.SPECIALTY in x
+                )
+            ]
+
+        if refined_matches.empty:
+            refined_matches = payments_x_conflicteds[
+                payments_x_conflicteds["filters"].apply(
+                    lambda x: PaymentFilters.SUBSPECIALTY in x
+                )
+            ]
+
+        return refined_matches

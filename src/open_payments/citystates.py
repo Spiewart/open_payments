@@ -1,11 +1,12 @@
 import re
-from typing import ClassVar, Union
+from typing import ClassVar, Type, Union
 
 import pandas as pd
 from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
 from .choices import PaymentFilters, States
+from .helpers import ColumnMixin
 from .read import ReadPayments
 
 
@@ -94,9 +95,9 @@ class CityState(BaseModel):
         return self
 
 
-class CityStatesMixin:
+class CityStatesMixin(ColumnMixin):
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().general_columns
         cols.update({
@@ -111,7 +112,7 @@ class CityStatesMixin:
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().ownership_columns
         cols.update({
@@ -121,7 +122,7 @@ class CityStatesMixin:
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().research_columns
 
@@ -246,7 +247,7 @@ class PaymentIDsCityStates(CityStatesMixin):
     ) -> bool:
         """Filters by city."""
 
-        return (
+        value = (
                 cls.payment_conflict_city_match(
                     payment_citystates=payments_x_conflicted["citystates"],
                     conflict_citystates=payments_x_conflicted[
@@ -254,6 +255,10 @@ class PaymentIDsCityStates(CityStatesMixin):
                     ],
                 )
         )
+
+        if value and PaymentFilters.CITYSTATE not in payments_x_conflicted["filters"]:
+            return value
+        return False
 
     @classmethod
     def payment_conflict_city_match(
@@ -289,7 +294,7 @@ class PaymentIDsCityStates(CityStatesMixin):
     ) -> bool:
         """Filters by state."""
 
-        return (
+        value = (
                 cls.payment_conflict_state_match(
                     payment_citystates=payments_x_conflicted["citystates"],
                     conflict_citystates=payments_x_conflicted[
@@ -297,6 +302,10 @@ class PaymentIDsCityStates(CityStatesMixin):
                     ],
                 )
         )
+
+        if value and PaymentFilters.CITYSTATE not in payments_x_conflicted["filters"]:
+            return value
+        return False
 
     @classmethod
     def payment_conflict_state_match(
@@ -324,7 +333,7 @@ class PaymentIDsCityStates(CityStatesMixin):
     ) -> bool:
         """Filters by city and state."""
 
-        return (
+        value = (
             cls.payment_conflict_citystate_match(
                 payment_citystates=payments_x_conflicted["citystates"],
                 conflict_citystates=payments_x_conflicted[
@@ -332,6 +341,18 @@ class PaymentIDsCityStates(CityStatesMixin):
                 ],
             )
         )
+
+        if value:
+            if PaymentFilters.CITY in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.CITY
+                )
+            if PaymentFilters.STATE in payments_x_conflicted["filters"]:
+                payments_x_conflicted["filters"].remove(
+                    PaymentFilters.STATE
+                )
+
+        return value
 
     @classmethod
     def payment_conflict_citystate_match(
@@ -351,6 +372,16 @@ class PaymentIDsCityStates(CityStatesMixin):
                 and pd.notna(conflict_citystate)
             )
         )
+
+    @staticmethod
+    def get_full_citystate_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        return payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: PaymentFilters.CITYSTATE in x
+            )
+        ]
 
     @staticmethod
     def get_citystate_matches(

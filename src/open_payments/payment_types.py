@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Union, Type
 
 import pandas as pd
 
@@ -17,7 +17,7 @@ class PaymentTypes(ReadPayments):
         )
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().general_columns
         cols.update({
@@ -27,7 +27,7 @@ class PaymentTypes(ReadPayments):
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().ownership_columns
         cols.update({
@@ -36,7 +36,7 @@ class PaymentTypes(ReadPayments):
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().research_columns
 

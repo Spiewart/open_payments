@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Union, Type
 
 import pandas as pd
 
@@ -169,7 +169,7 @@ class ReadPayments:
         payment_class: Union[Literal["general", "ownership", "research"]],
     ) -> dict[str, Union[list[str], dict[str, Union[str, int]]]]:
 
-        columns: dict[str, tuple[str, Union[str, int]]] = getattr(
+        columns: dict[str, tuple[str, Union[Type[str], str]]] = getattr(
             self,
             f"{payment_class}_columns",
         )
@@ -180,7 +180,7 @@ class ReadPayments:
         return csv_kwargs
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         return {
                 "Covered_Recipient_Profile_ID": ("profile_id", "Int32"),
@@ -190,7 +190,7 @@ class ReadPayments:
         }
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         return {
                 "Physician_Profile_ID": ("profile_id", "Int32"),
@@ -200,7 +200,7 @@ class ReadPayments:
         }
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         return {
             **self.general_columns

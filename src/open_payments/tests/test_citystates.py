@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from ..citystates import CityState, PaymentCityStates
+from ..citystates import CityState, PaymentCityStates, PaymentIDsCityStates
 
 
 class TestPaymentCityStates(unittest.TestCase):
@@ -231,3 +231,37 @@ class TestCityState(unittest.TestCase):
         self.assertTrue(citystate.citystate_matches(CityState(city="New York", state="NY")))
         self.assertTrue(citystate.citystate_matches(CityState(city="New York", state="New York")))
         self.assertFalse(citystate.citystate_matches(CityState(city="New Jersey", state="NY")))
+
+
+class TestPaymentIDsCityStates(unittest.TestCase):
+    def test__filter_by_citystate(self):
+        payments_x_conflicteds = pd.DataFrame({
+            "citystates": [
+                [
+                    CityState(city="New York", state="NY"),
+                    CityState(city="Minneapolis", state="MN"),
+                    CityState(city="Cheyenne", state="WY"),
+                ],
+            ],
+            "conflict_citystates": [
+                [
+                    CityState(city="New York", state="NY"),
+                    CityState(city=None, state="WY"),
+                    CityState(city="Billings", state=None),
+                ],
+            ],
+        })
+
+        citystate_match = PaymentIDsCityStates.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        self.assertTrue(citystate_match)
+
+        payments_x_conflicteds = pd.DataFrame({
+            "citystates": [
+                [CityState(city='Birmingham', state='AL')],
+            ],
+            "conflict_citystates": [
+                [CityState(city='Birmingham', state='Alabama')],
+            ]
+        })
+        citystate_match = PaymentIDsCityStates.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        self.assertTrue(citystate_match)

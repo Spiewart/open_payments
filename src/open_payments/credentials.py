@@ -1,20 +1,20 @@
 import re
-from typing import Union
+from typing import Type, Union
 
 import pandas as pd
 
 from .choices import Credentials, PaymentFilters
-from .helpers import get_file_suffix, open_payments_directory
+from .helpers import ColumnMixin, get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
-class CredentialsMixin:
+class CredentialsMixin(ColumnMixin):
     """Mixin class for credentials."""
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[str, tuple[str, Union[str, int]]] = super().general_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().general_columns
         cols.update({
                 "Covered_Recipient_Primary_Type_1": ("credential_1", str),
                 "Covered_Recipient_Primary_Type_2": ("credential_2", str),
@@ -26,20 +26,18 @@ class CredentialsMixin:
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[
-            str, tuple[str, Union[str, int]]
-        ] = super().ownership_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().ownership_columns
         cols.update({
                 "Physician_Primary_Type": ("credential_1", str),
         })
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols: dict[str, tuple[str, Union[str, int]]] = super().research_columns
+        cols: dict[str, tuple[str, Union[Type[str], str]]] = super().research_columns
 
         cols.update(
             self.general_columns

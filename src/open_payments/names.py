@@ -1,15 +1,16 @@
-import pandas as pd
 import re
-from typing import Union
+from typing import Type, Union
+
+import pandas as pd
 
 from .choices import PaymentFilters
-from .helpers import str_in_str
+from .helpers import ColumnMixin, str_in_str
 
 
-class NamesMixin:
+class NamesMixin(ColumnMixin):
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().general_columns
         cols.update(
@@ -22,7 +23,7 @@ class NamesMixin:
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().ownership_columns
         cols.update(
@@ -35,7 +36,7 @@ class NamesMixin:
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().research_columns
         cols.update(
@@ -58,18 +59,20 @@ class PaymentIDsNames(NamesMixin):
         filters.append(PaymentFilters.MIDDLENAME)
         return filters
 
+    @classmethod
     def merge_by_last_name(
-        self,
+        cls,
+        payments: pd.DataFrame,
         conflicted: pd.Series,
     ) -> pd.DataFrame:
         """Merges the payments DataFrame with the conflicted provider
         Series by last name. Returns a DataFrame of payments
         that match the conflicted provider's last name."""
 
-        print(f"Merging Payments df with Conflicted df by {conflicted['last_name']}...")
+        print(f"Merging Payments df with Conflicted df for {conflicted['last_name']}...")
 
-        merged_payments = self.payments[
-            self.payments["last_name"].str.lower()
+        merged_payments = payments[
+            payments["last_name"].str.lower()
             == conflicted["last_name"].lower()
         ]
 
@@ -85,8 +88,8 @@ class PaymentIDsNames(NamesMixin):
 
             # Check if any of potentially multiple last names
             # are in the payments last name
-            merged_payments = self.payments[
-                self.payments["last_name"].str.contains(
+            merged_payments = payments[
+                payments["last_name"].str.contains(
                     '|'.join(conflicted_last_names),
                     na=False,
                     case=False,

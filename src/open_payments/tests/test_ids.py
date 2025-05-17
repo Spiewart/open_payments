@@ -237,6 +237,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.reader.conflicteds = add_conflict_prefix(self.reader.conflicteds)
 
         merged = self.reader.merge_by_last_name(
+            payments=self.reader.payments,
             conflicted=self.reader.conflicteds.iloc[0]
         )
 
@@ -268,6 +269,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         })
 
         merged = self.reader.merge_by_last_name(
+            payments=self.reader.payments,
             conflicted=conflicteds.iloc[0]
         )
         self.assertIsInstance(merged, pd.DataFrame)

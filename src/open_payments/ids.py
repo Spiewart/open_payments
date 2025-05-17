@@ -1,19 +1,20 @@
-from typing import Literal, Union
+from typing import Literal, Type, Union
 
 import pandas as pd
 
 from .choices import PaymentFilters, Unmatcheds
 from .citystates import PaymentCityStates, PaymentIDsCityStates
 from .credentials import PaymentCredentials, PaymentIDsCredentials
+from .helpers import ColumnMixin
 from .names import NamesMixin, PaymentIDsNames
 from .physicians_only import PhysicianFilter
-from .specialtys import PaymentSpecialtys, PaymentIDsSpecialtys
+from .specialtys import PaymentIDsSpecialtys, PaymentSpecialtys
 
 
-class IDsMixin:
+class IDsMixin(ColumnMixin):
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         cols = super().general_columns
         cols.update({
                 "Covered_Recipient_Profile_ID": ("profile_id", "Int32"),
@@ -22,7 +23,7 @@ class IDsMixin:
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         cols = super().ownership_columns
         cols.update({
                 "Physician_Profile_ID": ("profile_id", "Int32"),
@@ -30,7 +31,7 @@ class IDsMixin:
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         cols = super().research_columns
         cols.update({**self.general_columns})
         return cols
@@ -222,6 +223,13 @@ class ConflictedPaymentIDs(
 
     """
 
+    @property
+    def merge_column(self) -> str:
+        """Returns the column to merge on. This is used to merge
+        the payments DataFrame with the conflicteds DataFrame."""
+
+        return "last_name"
+
     def search_for_conflicteds_ids(
         self,
     ) -> None:
@@ -234,7 +242,7 @@ class ConflictedPaymentIDs(
         conflicteds = self.conflicteds.rename(
             columns={
                 col: f"conflict_{col}" for col in self.conflicteds.columns
-                if (col != "last_name" and col != "provider_pk")
+                if (col != self.merge_column and col != "provider_pk")
             }
         )
 
@@ -260,7 +268,10 @@ class ConflictedPaymentIDs(
                     conflicted=conflicted,
                 )
 
-            print(f"Processing conflicted provider: {conflicted['last_name']}")
+            print(
+                f"Processing conflicted provider: {conflicted['conflict_first_name']}"
+                f" {conflicted['last_name']}"
+            )
 
     def filter_payments_for_conflicted(
         self,
@@ -268,15 +279,18 @@ class ConflictedPaymentIDs(
     ) -> None:
         """Filters the payments DataFrame for the given conflicted provider."""
 
-        merged = self.merge_by_last_name(
+        merged = getattr(self, f"merge_by_{self.merge_column}")(
+            payments=self.payments,
             conflicted=conflicted,
         )
 
         if merged.empty:
-            print(f"No payments found for {conflicted['last_name']}.")
+            print(f"No payments found for {conflicted[self.merge_column]}.")
             self.add_unmatched(
                 conflicted=self.conflicteds[
-                    self.conflicteds["provider_pk"] == conflicted["provider_pk"]
+                    self.conflicteds["provider_pk"] == conflicted[
+                        "provider_pk"
+                    ]
                 ],
                 unmatched=Unmatcheds.NOLASTNAME,
                 filters=[],
@@ -295,61 +309,93 @@ class ConflictedPaymentIDs(
                 axis=1,
             )
 
-        first_name_matches = self.get_firstname_matches(merged)
+        self.process_filtered_payments_x_conflicteds(
+            payments_x_conflicted=merged,
+        )
 
-        # Preferentially filter for first name matches
-        # Get the rows with the most filters
-        if not first_name_matches.empty:
-            middle_name_matches = self.get_middlename_matches(
-                first_name_matches
-            )
-            if not middle_name_matches.empty:
-                # Get the rows with the most filters
-                highest_matches = middle_name_matches[
-                    middle_name_matches["filters"].apply(
-                        lambda x: len(x) == max(
-                            middle_name_matches["filters"].apply(len)
-                        )
-                    )
-                ]
-            else:
-                # Get the rows with the most filters
-                highest_matches = first_name_matches[
-                    first_name_matches["filters"].apply(
-                        lambda x: len(x) == max(
-                            first_name_matches["filters"].apply(len)
-                        )
-                    )
-                ]
+    def process_filtered_payments_x_conflicteds(
+        self,
+        payments_x_conflicted: pd.DataFrame,
+    ) -> None:
+        """Processes a filtered payments_x_conflicted DataFrame and
+        adds either the unique row to the unique_ids df or, if unmatched,
+        the conflicted provider  data about which filters were
+        successfully applied to the unmatched df.
 
-        else:
-            highest_matches = merged[
-                merged["filters"].apply(
-                    lambda x: len(x) == max(
-                        merged["filters"].apply(len)
-                    )
-                )
-            ]
+        Can be overwritten for alternative functionality.
+        """
 
-        # Of the highest matches, reduce the DataFrame to only
+        # Of the payments, reduce the DataFrame to only
         # have a single payment from each profile_id
         # Keep the rows for each profile_id that have the fewest na columns
 
-        highest_matches = highest_matches.sort_values(
+        payments_x_conflicted = payments_x_conflicted.sort_values(
             by=["profile_id", "middle_name"],
             ascending=[True, True],
         )
 
-        highest_matches = highest_matches.drop_duplicates(
+        payments_x_conflicted = payments_x_conflicted.drop_duplicates(
             subset="profile_id", keep="first"
         )
 
+        first_name_matches = self.get_firstname_matches(
+            payments_x_conflicteds=payments_x_conflicted
+        )
+
+        if not first_name_matches.empty and self.extract_single_match(
+            first_name_matches
+        ):
+            return
+        # Preferentially filter for first name matches
+        # Get the rows with the most filters
+        else:
+            middle_name_matches = self.get_middlename_matches(
+                first_name_matches
+            )
+
+            if not middle_name_matches.empty and self.extract_single_match(
+                middle_name_matches
+            ):
+                return
+            else:
+                # If a single ID can't be found with the middle name,
+                # try to find a match with the full City and State
+                citystate_matches = self.get_full_citystate_matches(
+                    first_name_matches
+                )
+
+                if not citystate_matches.empty and self.extract_single_match(
+                    citystate_matches
+                ):
+                    return
+
+        if not middle_name_matches.empty:
+            highest_matches = self.get_highest_matches(
+                payments_x_conflicteds=middle_name_matches
+            )
+        elif not citystate_matches.empty:
+            highest_matches = self.get_highest_matches(
+                payments_x_conflicteds=citystate_matches
+            )
+        elif not first_name_matches.empty:
+            highest_matches = self.get_highest_matches(
+                payments_x_conflicteds=first_name_matches
+            )
+        else:
+            highest_matches = self.get_highest_matches(
+                payments_x_conflicteds=payments_x_conflicted
+            )
+
         if highest_matches.shape[0] == 1:
-            print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
+            print(
+                f"Found unique match for {payments_x_conflicted['conflict_first_name'].unique()[0]}"
+                f" {payments_x_conflicted['last_name'].unique()[0]}"
+            )
             self.add_unique_id(highest_matches)
         else:
             print(
-                f"Multiple matches found for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}: {len(highest_matches)}"
+                f"Multiple matches found for {payments_x_conflicted['conflict_first_name'].unique()[0]}"
+                f" {payments_x_conflicted['last_name'].unique()[0]}: {len(highest_matches)}"
             )
 
             print(
@@ -360,13 +406,29 @@ class ConflictedPaymentIDs(
                 highest_matches
             )
 
+            if best_highest_matches.empty:
+                best_highest_matches = self.get_specialty_matches(
+                    highest_matches
+                )
+            elif best_highest_matches.shape[0] > 1:
+                best_highest_matches = self.get_specialty_matches(
+                    best_highest_matches
+                )
+
             if (
                 not best_highest_matches.empty
                 and best_highest_matches.shape[0] == 1
             ):
-                print(f"Found unique match for {merged['conflict_first_name'].unique()[0]} {merged['last_name'].unique()[0]}")
+                print(
+                    f"Found unique match for {payments_x_conflicted['conflict_first_name'].unique()[0]}"
+                    f" {payments_x_conflicted['last_name'].unique()[0]}"
+                )
                 self.add_unique_id(best_highest_matches)
             else:
+                print(
+                    f"Could not find match for {payments_x_conflicted['conflict_first_name'].unique()[0]}"
+                    f" {payments_x_conflicted['last_name'].unique()[0]}"
+                )
                 if not best_highest_matches.empty:
                     self.unmatched_options = pd.concat(
                         [self.unmatched_options, best_highest_matches]
@@ -376,7 +438,7 @@ class ConflictedPaymentIDs(
                         [self.unmatched_options, highest_matches]
                     )
                 unmatched_conflict = self.conflicteds[
-                    self.conflicteds["provider_pk"] == conflicted["provider_pk"]
+                    self.conflicteds["provider_pk"] == payments_x_conflicted.iloc[0]["provider_pk"]
                 ]
 
                 self.add_unmatched(
@@ -385,3 +447,30 @@ class ConflictedPaymentIDs(
                     filters=highest_matches.iloc[0]["filters"],
                     num_filters=len(highest_matches.iloc[0]["filters"])
                 )
+
+    def extract_single_match(
+        self,
+        matches: pd.DataFrame,
+    ) -> bool:
+        if matches.shape[0] == 1:
+            print(
+                f"Found unique match for {matches['conflict_first_name'].unique()[0]}"
+                f" {matches['last_name'].unique()[0]}"
+            )
+            self.add_unique_id(matches)
+            return True
+        return False
+
+    @staticmethod
+    def get_highest_matches(
+        payments_x_conflicteds: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Returns the rows with the most filters applied to them."""
+
+        return payments_x_conflicteds[
+            payments_x_conflicteds["filters"].apply(
+                lambda x: len(x) == max(
+                    payments_x_conflicteds["filters"].apply(len)
+                )
+            )
+        ]

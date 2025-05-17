@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Type, Union
 
 import pandas as pd
 
@@ -54,7 +54,7 @@ class Payments(ReadPayments):
         return payment_chunk
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         """Returns columns of interest and a tuple of the column's rename
         and dtype for reading general payments."""
 
@@ -75,7 +75,7 @@ class Payments(ReadPayments):
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         """Returns columns of interest and a tuple of the column's rename
         and dtype for reading ownership payments."""
 
@@ -176,7 +176,7 @@ class PaymentsSearch(PaymentTypes, ReadPayments):
         return payment_chunk
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[str, int]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
         cols = super().general_columns
         cols.update({
@@ -302,3 +302,4 @@ class DescribePayments:
                 stats = pd.concat([stats, year_stats])
 
         return stats
+
