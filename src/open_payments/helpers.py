@@ -12,28 +12,24 @@ class ColumnMixin:
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().general_columns
-        return cols
+        return {}
 
     @property
     def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().ownership_columns
-        return cols
+        return {}
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().research_columns
-        return cols
+        return {}
 
     @property
     def filters(self) -> list["PaymentFilters"]:
         """Overwritten to add CREDENTIAL PaymentFilter to
         the filters property."""
 
-        filters: list[PaymentFilters] = super().filters
-        return filters
+        return []
 
     def convert_merged_dtypes(
         self,
@@ -41,8 +37,6 @@ class ColumnMixin:
     ) -> pd.DataFrame:
         """Updates  payments and conflicteds columns into lists after
         they are loaded as strs in CSVs and Excel files."""
-
-        merged: pd.DataFrame = super().convert_merged_dtypes(merged)
 
         return merged
 

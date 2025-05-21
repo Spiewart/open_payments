@@ -10,10 +10,8 @@ from .payments import PaymentsSearch
 
 def create_MD_DO_payments_csv(
     method: Union[Type[PaymentIDs], Type[PaymentsSearch]],
-    payment_class: Union[
-        Literal["general", "ownership", "research"],
-    ],
-    year: Union[Literal[2020, 2021, 2022, 2023]]
+    payment_class: Literal["general", "ownership", "research"],
+    year: Literal[2020, 2021, 2022, 2023]
 ) -> None:
 
     """Creates an csv file containing the year's OpenPayments payments for the
@@ -53,7 +51,7 @@ def create_MD_DO_payments_csv(
         years=year,
     )
 
-    payments = id_maker.all_payments(physicians_only=True)
+    payments = id_maker.all_payments()
 
     print(
         payments.shape[0],
@@ -92,13 +90,15 @@ def create_payment_types_excel() -> None:
     ).create_payment_types_excel()
 
 
-def load_MD_DO_payments_csvs() -> pd.DataFrame:
+def load_MD_DO_id_search_payments() -> pd.DataFrame:
     """Method that loads all OpenPayments payments for MDs and DOs
     for the years 2020-2023 for all payment types (general, ownership,
     and research). The method will return a dataframe with all the
     payments."""
 
     path = open_payments_directory()
+
+    path = f"{path}/PaymentIDs_csvs"
 
     # Get the list of files in the directory
     files = os.listdir(path)
@@ -108,7 +108,13 @@ def load_MD_DO_payments_csvs() -> pd.DataFrame:
 
     # Load the files into a dataframe
     payments = pd.concat(
-        [pd.read_csv(os.path.join(path, f)) for f in files],
+        [pd.read_csv(
+            os.path.join(path, f),
+            dtype={
+                "first_name": str,
+                "middle_name": str,
+                "last_name": str,
+            }) for f in files],
         ignore_index=True,
     )
 

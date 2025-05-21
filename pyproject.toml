@@ -36,6 +36,7 @@ dependencies = [
 [project.scripts]
 unique_credentials = "open_payments.management:unique_credentials"  # Gets all unique credentials from OpenPayments
 MD_DO_2023_general_payments = "open_payments.management:MD_DO_2023_general_payments"  # Gets all MD/DO 2023 general payments
+id_general_csvs = "open_payments.management:create_id_MD_DO_payments_csvs"  # Creates the ID CSVs for OpenPayments general payments
 search_general_csvs = "open_payments.management:create_search_general_MD_DO_payments_csvs"  # Creates the search CSVs for OpenPayments general payments
 unique_specialties = "open_payments.management:unique_specialties"  # Gets all unique specialties from OpenPayments
 payment_types = "open_payments.management:create_payment_types_excel"  # Gets all payment types from OpenPayments

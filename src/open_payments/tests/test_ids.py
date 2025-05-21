@@ -11,7 +11,23 @@ from ..specialtys import Specialtys
 
 
 class TestPaymentIDs(unittest.TestCase):
-    pass
+    def test__all_payments(self):
+
+        reader = PaymentIDs(nrows=100, payment_classes=["general"], years=[2022])
+        payments = reader.all_payments()
+
+        self.assertIsInstance(payments, pd.DataFrame)
+
+        # Assert that the required columns are present
+        self.assertIn("profile_id", payments.columns)
+        self.assertIn("first_name", payments.columns)
+        self.assertIn("middle_name", payments.columns)
+        self.assertIn("last_name", payments.columns)
+        self.assertIn("specialtys", payments.columns)
+        self.assertIn("credentials", payments.columns)
+        self.assertIn("citystates", payments.columns)
+        self.assertIn("payment_year", payments.columns)
+        self.assertIn("payment_class", payments.columns)
 
 
 def add_conflicted_to_conflicteds_df(
@@ -78,6 +94,7 @@ def add_payment_id_to_payments_df(
     specialtys: list,
     credentials: list,
     citystates: list,
+    payment_year: int = 2023,
 ) -> pd.DataFrame:
     """
     Add a new payment ID to the payments DataFrame.
@@ -97,6 +114,7 @@ def add_payment_id_to_payments_df(
                 "specialtys": [specialtys],
                 "credentials": [credentials],
                 "citystates": [citystates],
+                "payment_year": payment_year,
             }),
         ],
         ignore_index=True
@@ -163,6 +181,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
                 [CityState(city="Los Angeles", state="CA")],
                 [CityState(city="Rochester", state="IL")]
             ],
+            "payment_year": [2022, 2023, 2023],
         })
         self.reader = ConflictedPaymentIDs(
             conflicteds=self.fake_conflicteds,
@@ -361,7 +380,8 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             ],
             "conflict_specialtys": [
                 Specialtys(specialty="Family", subspecialty=None)
-            ]
+            ],
+            "filters": [PaymentFilters.LASTNAME],
         })
 
         self.assertTrue(
@@ -376,7 +396,8 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             ],
             "conflict_specialtys": [
                 Specialtys(specialty="Family Medicine", subspecialty=None)
-            ]
+            ],
+            "filters": [PaymentFilters.LASTNAME],
         })
         self.assertTrue(
             ConflictedPaymentIDs.filter_by_specialty(
@@ -648,8 +669,6 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertIn(PaymentFilters.FIRSTNAME, doe_id["filters"])
         self.assertIn(PaymentFilters.CREDENTIAL, doe_id["filters"])
         self.assertIn(PaymentFilters.SPECIALTY, doe_id["filters"])
-        self.assertIn(PaymentFilters.CITY, doe_id["filters"])
-        self.assertIn(PaymentFilters.STATE, doe_id["filters"])
         self.assertIn(PaymentFilters.CITYSTATE, doe_id["filters"])
         self.assertIn(PaymentFilters.MIDDLENAME, doe_id["filters"])
         self.assertIn(PaymentFilters.MIDDLE_INITIAL, doe_id["filters"])

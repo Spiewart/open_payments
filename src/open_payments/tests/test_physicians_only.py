@@ -1,10 +1,10 @@
 import unittest
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from ..credentials import Credentials
-from ..physicians_only import PhysicianFilter
+from ..physicians_only import ReadPaymentsPhysicians
 from ..read import ReadPayments
 
 
@@ -16,12 +16,12 @@ class TestPhysiciansFilter(unittest.TestCase):
         ])
         self.general_payments = self.reader.read_general_payments_csvs()
         self.ownership_payments = self.reader.read_ownership_payments_csvs()
-        self.general_filter = PhysicianFilter(self.general_payments)
-        self.ownership_filter = PhysicianFilter(self.ownership_payments)
+        self.general_filter = ReadPaymentsPhysicians(self.general_payments)
+        self.ownership_filter = ReadPaymentsPhysicians(self.ownership_payments)
 
     def test__physician_filter(self):
 
-        filtered_payments = PhysicianFilter(self.general_payments).filter()
+        filtered_payments = ReadPaymentsPhysicians(self.general_payments).filter()
         self.assertIsInstance(filtered_payments, pd.DataFrame)
 
         self.assertTrue(
@@ -48,7 +48,7 @@ class TestPhysiciansFilter(unittest.TestCase):
         self.assertNotIn("", unique_credentials)
 
     def test__get_credential_filter_columns(self):
-        cred_filter_columns = PhysicianFilter(self.general_payments).get_credential_filter_columns()
+        cred_filter_columns = ReadPaymentsPhysicians(self.general_payments).get_credential_filter_columns()
 
         general_credential_columns = [
             "Covered_Recipient_Primary_Type_1",
@@ -62,7 +62,7 @@ class TestPhysiciansFilter(unittest.TestCase):
         for column in general_credential_columns:
             self.assertIn(column, cred_filter_columns)
 
-        cred_filter_columns = PhysicianFilter(self.ownership_payments).get_credential_filter_columns()
+        cred_filter_columns = ReadPaymentsPhysicians(self.ownership_payments).get_credential_filter_columns()
 
         research_credential_columns = [
             "Physician_Primary_Type",
@@ -72,7 +72,7 @@ class TestPhysiciansFilter(unittest.TestCase):
             self.assertIn(column, cred_filter_columns)
 
     def test__get_specialty_filter_columns(self):
-        spec_filter_columns = PhysicianFilter(self.general_payments).get_specialty_filter_columns()
+        spec_filter_columns = ReadPaymentsPhysicians(self.general_payments).get_specialty_filter_columns()
 
         general_specialty_columns = [
             "Covered_Recipient_Specialty_1",
@@ -86,7 +86,7 @@ class TestPhysiciansFilter(unittest.TestCase):
         for column in general_specialty_columns:
             self.assertIn(column, spec_filter_columns)
 
-        spec_filter_columns = PhysicianFilter(self.ownership_payments).get_specialty_filter_columns()
+        spec_filter_columns = ReadPaymentsPhysicians(self.ownership_payments).get_specialty_filter_columns()
 
         research_specialty_columns = [
             "Physician_Specialty",

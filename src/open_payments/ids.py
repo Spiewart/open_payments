@@ -7,7 +7,7 @@ from .citystates import PaymentCityStates, PaymentIDsCityStates
 from .credentials import PaymentCredentials, PaymentIDsCredentials
 from .helpers import ColumnMixin
 from .names import NamesMixin, PaymentIDsNames
-from .physicians_only import PhysicianFilter
+from .physicians_only import ReadPaymentsPhysicians
 from .specialtys import PaymentIDsSpecialtys, PaymentSpecialtys
 
 
@@ -43,6 +43,7 @@ class PaymentIDs(
     PaymentCityStates,
     IDsMixin,
     NamesMixin,
+    ReadPaymentsPhysicians,
 ):
 
     def __init__(
@@ -59,14 +60,6 @@ class PaymentIDs(
     ) -> pd.DataFrame:
         """Removes duplicate IDs and renames columns for the payment class
         DataFrame."""
-
-        if self.MD_DO_only:
-            payments = PhysicianFilter(
-                payments=getattr(
-                    self,
-                    f"{payment_class}_payments",
-                )
-            ).filter()
 
         payments = super().update_payments(payment_class)
 
@@ -103,6 +96,28 @@ class PaymentIDs(
         ]
 
         return df
+
+    @property
+    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
+        """Returns the columns for the general payments DataFrame."""
+
+        cols = super().general_columns
+        cols.update({
+            "Program_Year": ("payment_year", "Int16"),
+        })
+
+        return cols
+
+    @property
+    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
+        """Returns the columns for the ownership payments DataFrame."""
+
+        cols = super().ownership_columns
+        cols.update({
+            "Program_Year": ("payment_year", "Int16"),
+        })
+
+        return cols
 
 
 class Conflicted_x_PaymentIDs:
@@ -161,6 +176,9 @@ class Conflicted_x_PaymentIDs:
             "num_filters",
             highest_matches["filters"].apply(len),
         )
+
+        highest_matches.drop("payment_year", axis=1, inplace=True)
+
         self.unique_ids = pd.concat(
             [self.unique_ids, highest_matches],
             ignore_index=True,
@@ -220,7 +238,7 @@ class ConflictedPaymentIDs(
         -specialtys: array[Specialtys]
         -credentials: array[Credentials]
         -citystates: array[CityState]
-
+        -payment_year: int
     """
 
     @property
@@ -300,6 +318,8 @@ class ConflictedPaymentIDs(
 
         merged = self.convert_merged_dtypes(merged)
 
+        merged = self.fill_middle_names(merged)
+        
         for payment_filter in self.filters:
             merged = merged.apply(
                 lambda x: self.filter_payment(
@@ -327,11 +347,10 @@ class ConflictedPaymentIDs(
 
         # Of the payments, reduce the DataFrame to only
         # have a single payment from each profile_id
-        # Keep the rows for each profile_id that have the fewest na columns
 
         payments_x_conflicted = payments_x_conflicted.sort_values(
-            by=["profile_id", "middle_name"],
-            ascending=[True, True],
+            by=["profile_id", "payment_year"],
+            ascending=[True, False],
         )
 
         payments_x_conflicted = payments_x_conflicted.drop_duplicates(
@@ -352,7 +371,7 @@ class ConflictedPaymentIDs(
             middle_name_matches = self.get_middlename_matches(
                 first_name_matches
             )
-
+            print(middle_name_matches)
             if not middle_name_matches.empty and self.extract_single_match(
                 middle_name_matches
             ):
@@ -360,31 +379,23 @@ class ConflictedPaymentIDs(
             else:
                 # If a single ID can't be found with the middle name,
                 # try to find a match with the full City and State
-                citystate_matches = self.get_full_citystate_matches(
+                citystate_matches = self.get_citystate_matches(
                     first_name_matches
                 )
-
+                print(citystate_matches)
                 if not citystate_matches.empty and self.extract_single_match(
                     citystate_matches
                 ):
                     return
 
-        if not middle_name_matches.empty:
-            highest_matches = self.get_highest_matches(
-                payments_x_conflicteds=middle_name_matches
+        highest_matches = self.get_highest_matches(
+            payments_x_conflicteds=(
+                middle_name_matches if not middle_name_matches.empty
+                else citystate_matches if not citystate_matches.empty
+                else first_name_matches if not first_name_matches.empty
+                else payments_x_conflicted
             )
-        elif not citystate_matches.empty:
-            highest_matches = self.get_highest_matches(
-                payments_x_conflicteds=citystate_matches
-            )
-        elif not first_name_matches.empty:
-            highest_matches = self.get_highest_matches(
-                payments_x_conflicteds=first_name_matches
-            )
-        else:
-            highest_matches = self.get_highest_matches(
-                payments_x_conflicteds=payments_x_conflicted
-            )
+        )
 
         if highest_matches.shape[0] == 1:
             print(
@@ -447,6 +458,28 @@ class ConflictedPaymentIDs(
                     filters=highest_matches.iloc[0]["filters"],
                     num_filters=len(highest_matches.iloc[0]["filters"])
                 )
+
+    @staticmethod
+    def fill_middle_names(merged: pd.DataFrame) -> pd.DataFrame:
+        """Iterates over middle_name column for each row and
+        looks for na values and then searches the df for other rows
+        for the same profile_id with a middle_name and backfills
+        the na values with the middle_name from the other rows. This
+        is because some payments may have their middle name omitted,
+        but it can be useful when searching."""
+
+        merged["middle_name"] = merged.apply(
+            lambda x: (
+                x["middle_name"] if not pd.isna(x["middle_name"]) else
+                next(iter(
+                    merged[
+                        merged["profile_id"] == x["profile_id"]
+                    ]["middle_name"].unique()), None)
+            ),
+            axis=1,
+        )
+
+        return merged
 
     def extract_single_match(
         self,

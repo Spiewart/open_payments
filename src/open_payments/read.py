@@ -1,11 +1,11 @@
-from typing import Literal, Union, Type
+from typing import Literal, Type, Union
 
 import pandas as pd
 
-from .helpers import open_payments_directory
+from .helpers import ColumnMixin, open_payments_directory
 
 
-class ReadPayments:
+class ReadPayments(ColumnMixin):
     """Class method whose only job is to read the OpenPayments csv files.
     It can be subclassed to add additional functionality and efficiency
     when reading the csv files."""
@@ -39,7 +39,7 @@ class ReadPayments:
         self.ownership_payments = pd.DataFrame() if ownership_payments is None else ownership_payments
         self.research_payments = pd.DataFrame() if research_payments is None else research_payments
 
-    def all_payments(self, physicians_only: bool = True) -> pd.DataFrame:
+    def all_payments(self) -> pd.DataFrame:
         """Returns a DataFrame of all payments with merged column names
         from the OpenPayments datasets."""
 
@@ -54,7 +54,6 @@ class ReadPayments:
                 self,
                 f"{payment_class}_payments", self.read_payments_csvs(
                     payment_class=payment_class,
-                    physicians_only=physicians_only
                 )
             )
 
@@ -80,7 +79,6 @@ class ReadPayments:
     def read_payments_csvs(
         self,
         payment_class: Literal["general", "ownership", "research"],
-        physicians_only: bool = True
     ) -> pd.DataFrame:
         """Reads the OpenPayments csv files for the specified payment class
         and returns a DataFrame of the payments. The csv files are read in
@@ -89,9 +87,7 @@ class ReadPayments:
 
         print(f"Reading {payment_class} payments...")
 
-        csv_kwargs = {"nrows": self.nrows} if self.nrows is not None else {"chunksize": 50000}
-
-        csv_kwargs = self.update_csv_kwargs(csv_kwargs, payment_class)
+        csv_kwargs = self.update_or_create_csv_kwargs(payment_class)
 
         for year in self.years:
 
@@ -105,7 +101,6 @@ class ReadPayments:
                 (
                     self.filter_payment_chunk(
                         x,
-                        physicians_only=physicians_only,
                     )
                 ) for x in pd.read_csv(
                     csv_path,
@@ -122,7 +117,7 @@ class ReadPayments:
                         engine="c",
                         low_memory=False,
                         **csv_kwargs,
-                    ), physicians_only=physicians_only
+                    ),
                 )
             )
 
@@ -140,11 +135,14 @@ class ReadPayments:
     def filter_payment_chunk(
         self,
         payment_chunk: pd.DataFrame,
-        physicians_only: bool = True,
     ) -> pd.DataFrame:
         """Filters the payment chunk for physicians only if specified."""
 
-        return payment_chunk if physicians_only else payment_chunk
+        print(
+            "Filtering payment chunk"
+        )
+
+        return payment_chunk
 
     @staticmethod
     def get_payment_csv_path(
@@ -163,17 +161,24 @@ class ReadPayments:
 
         return f"{str(year)}/OP_DTL_{prefixes[payment_class]}_PGYR{str(year)}_{postfix}"
 
-    def update_csv_kwargs(
+    def update_or_create_csv_kwargs(
         self,
-        csv_kwargs: dict[str, Union[list[str], dict[str, Union[str, int]]]],
-        payment_class: Union[Literal["general", "ownership", "research"]],
+        payment_class: Literal["general", "ownership", "research"],
+        csv_kwargs: Union[dict, None] = None,
     ) -> dict[str, Union[list[str], dict[str, Union[str, int]]]]:
+
+        if csv_kwargs is None:
+            csv_kwargs = {}
 
         columns: dict[str, tuple[str, Union[Type[str], str]]] = getattr(
             self,
             f"{payment_class}_columns",
         )
 
+        if self.nrows is not None:
+            csv_kwargs["nrows"] = self.nrows
+        else:
+            csv_kwargs["chunksize"] = 50000
         csv_kwargs["usecols"] = columns.keys()
         csv_kwargs["dtype"] = {key: value[1] for key, value in columns.items()}
 
@@ -182,29 +187,36 @@ class ReadPayments:
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        return {
+        cols = super().general_columns
+        cols.update({
                 "Covered_Recipient_Profile_ID": ("profile_id", "Int32"),
                 "Covered_Recipient_Last_Name": ("last_name", str),
                 "Covered_Recipient_First_Name": ("first_name", str),
                 "Covered_Recipient_Middle_Name": ("middle_name", str),
-        }
+            }
+        )
+        return cols
 
     @property
     def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        return {
+        cols = super().ownership_columns
+        cols.update({
                 "Physician_Profile_ID": ("profile_id", "Int32"),
                 "Physician_First_Name": ("first_name", str),
                 "Physician_Last_Name": ("last_name", str),
                 "Physician_Middle_Name": ("middle_name", str),
-        }
+        })
+        return cols
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        return {
-            **self.general_columns
-        }
+        cols = super().research_columns
+        cols.update(
+            self.general_columns,
+        )
+        return cols
 
     def update_payments(
         self,

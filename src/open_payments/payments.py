@@ -3,7 +3,6 @@ from typing import Literal, Type, Union
 import pandas as pd
 
 from .payment_types import PaymentTypes
-from .physicians_only import PhysicianFilter
 from .read import ReadPayments
 
 
@@ -35,23 +34,6 @@ class Payments(ReadPayments):
             ownership_payments=ownership_payments,
             research_payments=research_payments,
         )
-
-    def filter_payment_chunk(
-        self,
-        payment_chunk: pd.DataFrame,
-        physicians_only: bool = True
-    ) -> pd.DataFrame:
-        """Filters the payment chunk for physicians only if specified."""
-
-        print(
-            "Filtering payment chunk"
-            f"{' for physicians only' if physicians_only else ''}..."
-        )
-
-        if physicians_only:
-            payment_chunk = PhysicianFilter(payment_chunk).filter()
-
-        return payment_chunk
 
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
@@ -89,7 +71,7 @@ class Payments(ReadPayments):
         }
 
     @property
-    def research_columns(self) -> dict[str, str]:
+    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
         """Returns columns of interest and a tuple of the column's rename
         and dtype for reading research payments."""
 
@@ -302,4 +284,3 @@ class DescribePayments:
                 stats = pd.concat([stats, year_stats])
 
         return stats
-
