@@ -1,11 +1,17 @@
-from typing import Literal, Type, Union
+from typing import Literal, Union, Type
 
+import logging
 import pandas as pd
 
-from .helpers import ColumnMixin, open_payments_directory
+from .helpers import open_payments_directory
+from .physicians_only import PhysicianFilter
 
 
-class ReadPayments(ColumnMixin):
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+
+class ReadPayments:
     """Class method whose only job is to read the OpenPayments csv files.
     It can be subclassed to add additional functionality and efficiency
     when reading the csv files."""
@@ -13,8 +19,8 @@ class ReadPayments(ColumnMixin):
     def __init__(
         self,
         years: Union[
-            list[Literal[2020, 2021, 2022, 2023]],
-            Literal[2020, 2021, 2022, 2023],
+            list[Literal[2020, 2021, 2022, 2023, 2024]],
+            Literal[2020, 2021, 2022, 2023, 2024],
         ] = None,
         payment_classes: Union[
             list[Literal["general", "ownership", "research"]],
@@ -26,6 +32,7 @@ class ReadPayments(ColumnMixin):
         general_payments: pd.DataFrame = None,
         ownership_payments: pd.DataFrame = None,
         research_payments: pd.DataFrame = None,
+        MD_DO_only: bool = True,
     ):
         self.years = [years] if isinstance(years, int) else years if years is not None else [2020, 2021, 2022, 2023]
         self.payment_classes = (
@@ -38,12 +45,13 @@ class ReadPayments(ColumnMixin):
         self.general_payments = pd.DataFrame() if general_payments is None else general_payments
         self.ownership_payments = pd.DataFrame() if ownership_payments is None else ownership_payments
         self.research_payments = pd.DataFrame() if research_payments is None else research_payments
+        self.MD_DO_only = MD_DO_only
 
     def all_payments(self) -> pd.DataFrame:
         """Returns a DataFrame of all payments with merged column names
         from the OpenPayments datasets."""
 
-        print((
+        logging.info((
             "Reading and updating payment classes: "
             f"{(', ').join(self.payment_classes)}...")
         )
@@ -85,9 +93,11 @@ class ReadPayments(ColumnMixin):
         chunks to avoid memory issues. The DataFrame is filtered for physicians
         only if specified."""
 
-        print(f"Reading {payment_class} payments...")
+        logging.info(f"Reading {payment_class} payments...")
 
-        csv_kwargs = self.update_or_create_csv_kwargs(payment_class)
+        csv_kwargs = {"nrows": self.nrows} if self.nrows is not None else {"chunksize": 50000}
+
+        csv_kwargs = self.update_csv_kwargs(csv_kwargs, payment_class)
 
         for year in self.years:
 
@@ -100,7 +110,8 @@ class ReadPayments(ColumnMixin):
             payments = pd.concat(
                 (
                     self.filter_payment_chunk(
-                        x,
+                        payment_chunk=x,
+                        payment_class=payment_class,
                     )
                 ) for x in pd.read_csv(
                     csv_path,
@@ -111,13 +122,14 @@ class ReadPayments(ColumnMixin):
                 )
             ) if self.nrows is None else (
                 self.filter_payment_chunk(
-                    pd.read_csv(
+                    payment_chunk=pd.read_csv(
                         csv_path,
                         header=0,
                         engine="c",
                         low_memory=False,
                         **csv_kwargs,
                     ),
+                    payment_class=payment_class,
                 )
             )
 
@@ -135,12 +147,20 @@ class ReadPayments(ColumnMixin):
     def filter_payment_chunk(
         self,
         payment_chunk: pd.DataFrame,
+        payment_class: Literal["general", "ownership", "research"],
     ) -> pd.DataFrame:
         """Filters the payment chunk for physicians only if specified."""
 
-        print(
-            "Filtering payment chunk"
+        # For some reason, there are rows in some OpenPayments datasets (2024)
+        # that have no Covered_Recipient_Profile_ID, so we drop those rows.
+        payment_chunk = payment_chunk.dropna(
+            subset=["Covered_Recipient_Profile_ID"]
+        ) if payment_class != "ownership" else payment_chunk.dropna(
+            subset=["Physician_Profile_ID"]
         )
+
+        if self.MD_DO_only:
+            payment_chunk = PhysicianFilter(payment_chunk).filter()
 
         return payment_chunk
 
@@ -157,28 +177,24 @@ class ReadPayments(ColumnMixin):
             "research": "RSRCH",
         }
 
-        postfix = "P06282024_06122024.csv"
+        if year == 2024:
+            postfix = "P06302025_06162025.csv"
+        else:
+            postfix = "P06282024_06122024.csv"
 
         return f"{str(year)}/OP_DTL_{prefixes[payment_class]}_PGYR{str(year)}_{postfix}"
 
-    def update_or_create_csv_kwargs(
+    def update_csv_kwargs(
         self,
-        payment_class: Literal["general", "ownership", "research"],
-        csv_kwargs: Union[dict, None] = None,
+        csv_kwargs: dict[str, Union[list[str], dict[str, Union[str, int]]]],
+        payment_class: Union[Literal["general", "ownership", "research"]],
     ) -> dict[str, Union[list[str], dict[str, Union[str, int]]]]:
-
-        if csv_kwargs is None:
-            csv_kwargs = {}
 
         columns: dict[str, tuple[str, Union[Type[str], str]]] = getattr(
             self,
             f"{payment_class}_columns",
         )
 
-        if self.nrows is not None:
-            csv_kwargs["nrows"] = self.nrows
-        else:
-            csv_kwargs["chunksize"] = 50000
         csv_kwargs["usecols"] = columns.keys()
         csv_kwargs["dtype"] = {key: value[1] for key, value in columns.items()}
 
@@ -187,36 +203,29 @@ class ReadPayments(ColumnMixin):
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().general_columns
-        cols.update({
+        return {
                 "Covered_Recipient_Profile_ID": ("profile_id", "Int32"),
                 "Covered_Recipient_Last_Name": ("last_name", str),
                 "Covered_Recipient_First_Name": ("first_name", str),
                 "Covered_Recipient_Middle_Name": ("middle_name", str),
-            }
-        )
-        return cols
+        }
 
     @property
     def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().ownership_columns
-        cols.update({
+        return {
                 "Physician_Profile_ID": ("profile_id", "Int32"),
                 "Physician_First_Name": ("first_name", str),
                 "Physician_Last_Name": ("last_name", str),
                 "Physician_Middle_Name": ("middle_name", str),
-        })
-        return cols
+        }
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
-        cols = super().research_columns
-        cols.update(
-            self.general_columns,
-        )
-        return cols
+        return {
+            **self.general_columns
+        }
 
     def update_payments(
         self,

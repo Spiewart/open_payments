@@ -1,50 +1,18 @@
+import logging
 import os
 import re
-from typing import Literal, Type, Union
+from typing import Literal, Union
 
 import pandas as pd
 
-from .choices import PaymentFilters
-
-
-class ColumnMixin:
-
-    @property
-    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
-
-        return {}
-
-    @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
-
-        return {}
-
-    @property
-    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
-
-        return {}
-
-    @property
-    def filters(self) -> list["PaymentFilters"]:
-        """Overwritten to add CREDENTIAL PaymentFilter to
-        the filters property."""
-
-        return []
-
-    def convert_merged_dtypes(
-        self,
-        merged: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Updates  payments and conflicteds columns into lists after
-        they are loaded as strs in CSVs and Excel files."""
-
-        return merged
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 def get_file_suffix(
     years: Union[
-            list[Literal[2020, 2021, 2022, 2023]],
-            Literal[2020, 2021, 2022, 2023],
+            list[Literal[2020, 2021, 2022, 2023, 2024]],
+            Literal[2020, 2021, 2022, 2023, 2024],
         ],
     payment_classes: Union[
         list[Literal["general", "ownership", "research"]],
@@ -59,11 +27,11 @@ def get_file_suffix(
             f"_{'_'.join(payment_classes)}_{('_'.join([str(year) for year in years] if isinstance(years, list) else [str(years)]))}"
             if (
                 isinstance(years, list) and any(
-                    year not in years for year in [2020, 2021, 2022, 2023]
+                    year not in years for year in [2020, 2021, 2022, 2023, 2024]
                 ) or isinstance(
                     years,
                     int,
-                ) and years not in [2020, 2021, 2022, 2023]
+                ) and years not in [2020, 2021, 2022, 2023, 2024]
             )
             or (
                 payment_classes is not None
@@ -90,9 +58,8 @@ def load_all_MD_DO_payments_csvs() -> pd.DataFrame:
             file_name = f"MD_DO_payments{file_suffix}.csv"
 
             if file_name not in os.listdir(path):
-                print(
-                    f"File {path}/{file_name} does not exist. "
-                    "Please create the file first."
+                logging.warning(
+                    f"File {path}/{file_name} does not exist. Please create the file first."
                 )
                 continue
 

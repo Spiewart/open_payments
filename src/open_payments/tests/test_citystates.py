@@ -2,7 +2,8 @@ import unittest
 
 import pandas as pd
 
-from ..citystates import CityState, PaymentCityStates, PaymentIDsCityStates
+from ..citystates import (CityState, PaymentCityStates,
+                          PaymentIDsCityStatesMixin)
 
 
 class TestPaymentCityStates(unittest.TestCase):
@@ -233,7 +234,7 @@ class TestCityState(unittest.TestCase):
         self.assertFalse(citystate.citystate_matches(CityState(city="New Jersey", state="NY")))
 
 
-class TestPaymentIDsCityStates(unittest.TestCase):
+class TestPaymentIDsCityStatesMixin(unittest.TestCase):
     def test__filter_by_citystate(self):
         payments_x_conflicteds = pd.DataFrame({
             "citystates": [
@@ -252,7 +253,7 @@ class TestPaymentIDsCityStates(unittest.TestCase):
             ],
         })
 
-        citystate_match = PaymentIDsCityStates.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(payments_x_conflicteds.iloc[0])
         self.assertTrue(citystate_match)
 
         payments_x_conflicteds = pd.DataFrame({
@@ -263,5 +264,5 @@ class TestPaymentIDsCityStates(unittest.TestCase):
                 [CityState(city='Birmingham', state='Alabama')],
             ]
         })
-        citystate_match = PaymentIDsCityStates.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(payments_x_conflicteds.iloc[0])
         self.assertTrue(citystate_match)

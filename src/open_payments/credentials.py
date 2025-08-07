@@ -4,11 +4,11 @@ from typing import Type, Union
 import pandas as pd
 
 from .choices import Credentials, PaymentFilters
-from .helpers import ColumnMixin, get_file_suffix, open_payments_directory
+from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
-class CredentialsMixin(ColumnMixin):
+class CredentialsMixin:
     """Mixin class for credentials."""
 
     @property
@@ -45,7 +45,7 @@ class CredentialsMixin(ColumnMixin):
         return cols
 
 
-class PaymentCredentials(ReadPayments, CredentialsMixin):
+class PaymentCredentials(CredentialsMixin, ReadPayments):
 
     def create_unique_credentials_excel(self, path: Union[str, None] = None) -> None:
         path = open_payments_directory() if path is None else path
@@ -190,7 +190,7 @@ def unique_credentials() -> None:
     PaymentCredentials(nrows=None, years=2023).create_unique_credentials_excel()
 
 
-class PaymentIDsCredentials(CredentialsMixin):
+class PaymentIDsCredentialsMixin(CredentialsMixin):
     """Filters OpenPayments payments by credentials."""
 
     @property

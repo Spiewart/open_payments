@@ -1,42 +1,29 @@
-from typing import Type, Union
-
+import logging
 import pandas as pd
 
 from .choices import Credentials
-from .read import ReadPayments
 
 
-class ReadPaymentsPhysicians(ReadPayments):
+logging.basicConfig(level=logging.INFO)
 
-    @property
-    def general_columns(self) -> dict[
-        str, tuple[Union[str, None], Union[Type[str], str]]
-    ]:
-        cols = super().general_columns
-        cols.update({
-            "Covered_Recipient_Primary_Type_1": ("credential_1", str),
-            "Covered_Recipient_Primary_Type_2": ("credential_2", str),
-            "Covered_Recipient_Primary_Type_3": ("credential_3", str),
-            "Covered_Recipient_Primary_Type_4": ("credential_4", str),
-            "Covered_Recipient_Primary_Type_5": ("credential_5", str),
-            "Covered_Recipient_Primary_Type_6": ("credential_6", str),
-            "Covered_Recipient_Specialty_1": ("specialty_1", str),
-            "Covered_Recipient_Specialty_2": ("specialty_2", str),
-            "Covered_Recipient_Specialty_3": ("specialty_3", str),
-            "Covered_Recipient_Specialty_4": ("specialty_4", str),
-            "Covered_Recipient_Specialty_5": ("specialty_5", str),
-            "Covered_Recipient_Specialty_6": ("specialty_6", str),
-        })
-        return cols
 
-    @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
-        cols = super().ownership_columns
-        cols.update({
-            "Physician_Primary_Type": ("credential_1", str),
-            "Physician_Specialty": ("specialty_1", str),
-        })
-        return cols
+class PhysicianFilter:
+    """Class method to filter unprocessed OpenPayments payments for MDs and DOs.
+    Uses columns pertaining to physician credentials and specialties
+    to filter the payments DataFrame.
+
+    args:
+        payments (pd.DataFrame): The DataFrame containing OpenPayments payments.
+
+    returns:
+        pd.DataFrame: A DataFrame containing only the payments for MDs and DOs.
+    """
+
+    def __init__(
+        self,
+        payments: pd.DataFrame,
+    ):
+        self.payments = payments
 
     potential_credential_columns = [
         "Covered_Recipient_Primary_Type_1",
@@ -49,72 +36,56 @@ class ReadPaymentsPhysicians(ReadPayments):
     ]
 
     potential_specialty_columns = [
-        "Covered_Recipient_Specialty_1", str,
-        "Covered_Recipient_Specialty_2", str,
-        "Covered_Recipient_Specialty_3", str,
-        "Covered_Recipient_Specialty_4", str,
-        "Covered_Recipient_Specialty_5", str,
-        "Covered_Recipient_Specialty_6", str,
-        "Physician_Specialty", str,
+        "Covered_Recipient_Specialty_1",
+        "Covered_Recipient_Specialty_2",
+        "Covered_Recipient_Specialty_3",
+        "Covered_Recipient_Specialty_4",
+        "Covered_Recipient_Specialty_5",
+        "Covered_Recipient_Specialty_6",
+        "Physician_Specialty",
     ]
 
-    def filter_payment_chunk(self, payment_chunk: pd.DataFrame) -> pd.DataFrame:
-        chunk = super().filter_payment_chunk(payment_chunk)
-        print("for physicians only...")
-        chunk = self.filter(chunk)
-        return chunk
+    def filter(self) -> pd.DataFrame:
+        """Filters the payments DataFrame for MDs and DOs
+        by checking the specialty and credential columns.
+        Returns rows that have either:
+        1. A specialty of 'Allopathic & Osteopathic Physicians'
+        2. A credential of 'Medical Doctor' or 'Doctor of Osteopathy'"""
 
-    @classmethod
-    def filter(cls, payments: pd.DataFrame) -> pd.DataFrame:
-        """Method that filters unprocessed OpenPayments data
-        for payments that are made to physicians only."""
-
-        return payments[
-            (cls.physician_specialty(payments) | cls.specialty_null(payments))
-            & (cls.physician_credential(payments) | cls.credential_null(payments))
+        logging.info(
+            "Filtering payments for MDs and DOs based on specialty and credential columns..."
+        )
+        
+        return self.payments[
+            self.physician_specialty() | self.physician_credential()
         ]
 
-    @classmethod
-    def physician_specialty(cls, payments: pd.DataFrame) -> pd.Series:
-        """Checks the payments DataFrame's specialty columns for
-        'Allopathic & Osteopathic Physicians' and returns a Series
-        of boolean values indicating if so. This is used to filter
-        the DataFrame for physicians only."""
+    def physician_specialty(self) -> pd.Series:
+        """Returns True for rows that have a specialty of
+        'Allopathic & Osteopathic Physicians'."""
 
-        return payments[cls.get_specialty_filter_columns(payments)].apply(
-            lambda specialty_columns: specialty_columns.str.contains(
+        return self.payments[self.get_specialty_filter_columns()].apply(
+            lambda specialty_columns: specialty_columns.astype(str)
+            .str.contains(
                 "Allopathic & Osteopathic Physicians",
                 case=False,
-                na=False,
-                regex=False,
+                na=False
             ).any(),
             axis=1
         )
 
-    @classmethod
-    def specialty_null(cls, payments: pd.DataFrame) -> pd.Series:
-        """Method that returns True if all of the specialty columns are null."""
-        return payments[cls.get_specialty_filter_columns(payments)].isnull().all(axis=1)
-
-    @classmethod
-    def credential_null(cls, payments: pd.DataFrame) -> pd.Series:
-        """Method that returns True if all of the credential columns are null."""
-        return payments[cls.get_credential_filter_columns(payments)].isnull().all(axis=1)
-
-    @classmethod
-    def get_credential_filter_columns(cls, payments: pd.DataFrame) -> list[str]:
-        """Method that returns the credential columns to filter by."""
+    def get_specialty_filter_columns(self):
+        """Returns MD/DO-specialty columns that are in the DF."""
 
         return [
-            column for column in cls.potential_credential_columns
-            if column in payments.columns
+            column for column in self.potential_specialty_columns
+            if column in self.payments.columns
         ]
 
-    @classmethod
-    def physician_credential(cls, payments: pd.DataFrame) -> pd.Series:
-        """Method that checks if the row contains a physician credential."""
+    def physician_credential(self) -> pd.Series:
+        """Returns True for rows that have a credential of 'Medical Doctor' or 'Doctor of Osteopathy'."""
 
-        return payments[cls.get_credential_filter_columns(payments)].apply(
+        return self.payments[self.get_credential_filter_columns()].apply(
             lambda credential_columns: any(
                 credential in [
                     Credentials.MEDICAL_DOCTOR,
@@ -124,11 +95,10 @@ class ReadPaymentsPhysicians(ReadPayments):
             axis=1
         )
 
-    @classmethod
-    def get_specialty_filter_columns(cls, payments: pd.DataFrame) -> list[str]:
-        """Method that returns the specialty columns to filter by."""
+    def get_credential_filter_columns(self):
+        """Returns MD/DO-credential columns that are in the DF."""
 
         return [
-            column for column in cls.potential_specialty_columns
-            if column in payments.columns
+            column for column in self.potential_credential_columns
+            if column in self.payments.columns
         ]

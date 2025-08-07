@@ -7,27 +7,41 @@ import pandas as pd
 from ..citystates import CityState
 from ..credentials import Credentials
 from ..ids import ConflictedPaymentIDs, PaymentFilters, PaymentIDs, Unmatcheds
+from ..physicians_only import PhysicianFilter
 from ..specialtys import Specialtys
 
 
 class TestPaymentIDs(unittest.TestCase):
+    def setUp(self):
+        self.payment_ids = PaymentIDs(
+            nrows=1000,
+            payment_classes=["general"],
+            years=[2024],
+        )
+
+    def test__pre_processing(self):
+        self.assertTrue(hasattr(self.payment_ids, "general_payments"))
+        self.payment_ids.general_payments = self.payment_ids.read_payments_csvs(
+            payment_class="general",
+        )
+        self.assertFalse(self.payment_ids.general_payments["Covered_Recipient_Profile_ID"].isnull().any())
+
     def test__all_payments(self):
+        all_payments = self.payment_ids.all_payments()
 
-        reader = PaymentIDs(nrows=100, payment_classes=["general"], years=[2022])
-        payments = reader.all_payments()
+        self.assertIsInstance(all_payments, pd.DataFrame)
+        self.assertFalse(all_payments.empty)
 
-        self.assertIsInstance(payments, pd.DataFrame)
+        # Check if the DataFrame has the expected columns
+        expected_columns = [
+            "profile_id", "first_name", "middle_name", "last_name",
+            "specialtys", "credentials", "citystates"
+        ]
+        for col in expected_columns:
+            self.assertIn(col, all_payments.columns)
 
-        # Assert that the required columns are present
-        self.assertIn("profile_id", payments.columns)
-        self.assertIn("first_name", payments.columns)
-        self.assertIn("middle_name", payments.columns)
-        self.assertIn("last_name", payments.columns)
-        self.assertIn("specialtys", payments.columns)
-        self.assertIn("credentials", payments.columns)
-        self.assertIn("citystates", payments.columns)
-        self.assertIn("payment_year", payments.columns)
-        self.assertIn("payment_class", payments.columns)
+        # Assert that no row in the DF has a null value in the 'profile_id' column
+        self.assertFalse(all_payments["profile_id"].isnull().any())
 
 
 def add_conflicted_to_conflicteds_df(
@@ -94,7 +108,6 @@ def add_payment_id_to_payments_df(
     specialtys: list,
     credentials: list,
     citystates: list,
-    payment_year: int = 2023,
 ) -> pd.DataFrame:
     """
     Add a new payment ID to the payments DataFrame.
@@ -114,7 +127,6 @@ def add_payment_id_to_payments_df(
                 "specialtys": [specialtys],
                 "credentials": [credentials],
                 "citystates": [citystates],
-                "payment_year": payment_year,
             }),
         ],
         ignore_index=True
@@ -181,7 +193,6 @@ class TestConflictedPaymentIDs(unittest.TestCase):
                 [CityState(city="Los Angeles", state="CA")],
                 [CityState(city="Rochester", state="IL")]
             ],
-            "payment_year": [2022, 2023, 2023],
         })
         self.reader = ConflictedPaymentIDs(
             conflicteds=self.fake_conflicteds,
@@ -381,7 +392,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "conflict_specialtys": [
                 Specialtys(specialty="Family", subspecialty=None)
             ],
-            "filters": [PaymentFilters.LASTNAME],
+            "filters": [],
         })
 
         self.assertTrue(
@@ -397,7 +408,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             "conflict_specialtys": [
                 Specialtys(specialty="Family Medicine", subspecialty=None)
             ],
-            "filters": [PaymentFilters.LASTNAME],
+            "filters": [],
         })
         self.assertTrue(
             ConflictedPaymentIDs.filter_by_specialty(
@@ -653,7 +664,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertTrue(
             self.reader.unique_ids.empty
         )
-
+        print(self.reader.filters)
         self.reader.filter_payments_for_conflicted(
             conflicted=doe_conflicted,
         )

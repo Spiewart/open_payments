@@ -6,7 +6,7 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
 from .choices import PaymentFilters
-from .helpers import ColumnMixin, get_file_suffix, open_payments_directory
+from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
 
 
@@ -26,7 +26,7 @@ class Specialtys(BaseModel):
         return self
 
 
-class SpecialtysMixin(ColumnMixin):
+class SpecialtysMixin:
 
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
@@ -62,7 +62,7 @@ class SpecialtysMixin(ColumnMixin):
         return cols
 
 
-class PaymentSpecialtys(ReadPayments, SpecialtysMixin):
+class PaymentSpecialtys(SpecialtysMixin, ReadPayments):
 
     def create_unique_specialtys_excel(self, path: Union[str, None] = None) -> None:
         path = open_payments_directory() if path is None else path
@@ -291,7 +291,7 @@ def unique_specialties() -> None:
     PaymentSpecialtys(nrows=None, years=2023).create_unique_specialtys_excel()
 
 
-class PaymentIDsSpecialtys(SpecialtysMixin):
+class PaymentIDsSpecialtysMixin(SpecialtysMixin):
     """Filters OpenPayments payments by specialty."""
 
     @property

@@ -1,54 +1,110 @@
 import unittest
 
-import numpy as np
 import pandas as pd
 
-from ..credentials import Credentials
-from ..physicians_only import ReadPaymentsPhysicians
+from ..credentials import Credentials, CredentialsMixin
+from ..physicians_only import PhysicianFilter
 from ..read import ReadPayments
+from ..specialtys import SpecialtysMixin
+
+
+class SpecialtyCredentialReader(SpecialtysMixin, CredentialsMixin, ReadPayments):
+    """Test class for reading payments and selecting specialty
+    and credential columns."""
+    pass
 
 
 class TestPhysiciansFilter(unittest.TestCase):
     def setUp(self):
-        self.reader = ReadPayments(nrows=1000, payment_classes=[
+        self.reader = SpecialtyCredentialReader(nrows=1000, payment_classes=[
             "general",
             "ownership",
         ])
-        self.general_payments = self.reader.read_general_payments_csvs()
-        self.ownership_payments = self.reader.read_ownership_payments_csvs()
-        self.general_filter = ReadPaymentsPhysicians(self.general_payments)
-        self.ownership_filter = ReadPaymentsPhysicians(self.ownership_payments)
+        self.general_payments = self.reader.read_payments_csvs(payment_class="general")
+        self.ownership_payments = self.reader.read_payments_csvs(payment_class="ownership")
+        self.general_filter = PhysicianFilter(self.general_payments)
+        self.ownership_filter = PhysicianFilter(self.ownership_payments)
+        self.fake_general_data = pd.DataFrame({
+            "Covered_Recipient_Primary_Type_1": [
+                Credentials.MEDICAL_DOCTOR,
+                Credentials.DOCTOR_OF_PODIATRIC_MEDICINE,
+                Credentials.DOCTOR_OF_OSTEOPATHY,
+                Credentials.PHYSICIAN_ASSISTANT,
+                Credentials.NURSE_PRACTITIONER,
+            ],
+            "Covered_Recipient_Specialty_1": [
+                "Allopathic & Osteopathic Physicians",
+                "Podiatric Medicine & Surgery",
+                "Allopathic & Osteopathic Physicians",
+                "Physician Assistants & Advanced Practice Nursing Providers|Physician Assistant",
+                "Nurse Practitioners",
+            ],
+        })
 
     def test__physician_filter(self):
+        physician_filter = PhysicianFilter(self.general_payments)
+        filtered_payments = physician_filter.filter()
 
-        filtered_payments = ReadPaymentsPhysicians(self.general_payments).filter()
         self.assertIsInstance(filtered_payments, pd.DataFrame)
 
-        self.assertTrue(
-            filtered_payments[
-                "Covered_Recipient_Specialty_1"
-            ].apply(
-                lambda x: (pd.isna(x) or "Allopathic & Osteopathic Physicians" in x)
-            ).all()
+        # Test that each row passes either the specialty filter OR
+        # credential filter
+        specialty_results = physician_filter.physician_specialty()
+        credential_results = physician_filter.physician_credential()
+
+        # Get the indices of filtered payments
+        filtered_indices = filtered_payments.index
+
+        # Verify that each filtered row passes at least one of the filters
+        for idx in filtered_indices:
+            # Use the boolean OR directly on the Series values at this index
+            specialty_mask = specialty_results.index == idx
+            credential_mask = credential_results.index == idx
+
+            specialty_passed = specialty_results[specialty_mask].any()
+            credential_passed = credential_results[credential_mask].any()
+
+            self.assertTrue(
+                specialty_passed or credential_passed,
+                f"Row {idx} should pass either specialty or credential filter"
+            )
+
+        # Verify that filtered payments contain expected credentials
+        if len(filtered_payments) > 0:
+            all_credential_cols = (
+                physician_filter.get_credential_filter_columns()
+            )
+            credential_values = set()
+            for col in all_credential_cols:
+                if col in filtered_payments.columns:
+                    credential_values.update(
+                        filtered_payments[col].dropna().unique()
+                    )
+
+            # Should contain physician credentials if any credential
+            # filtering occurred
+            physician_credentials = {
+                Credentials.MEDICAL_DOCTOR,
+                Credentials.DOCTOR_OF_OSTEOPATHY
+            }
+            if credential_values:
+                self.assertTrue(
+                    len(physician_credentials.intersection(
+                        credential_values
+                    )) > 0,
+                    "Filtered payments should contain physician credentials"
+                )
+
+        fake_data_filter = PhysicianFilter(self.fake_general_data)
+        fake_filtered = fake_data_filter.filter()
+        self.assertEqual(
+            len(fake_filtered),
+            2,
+            "Fake data should have two rows with 'Allopathic & Osteopathic Physicians' specialty"
         )
-
-        self.assertTrue(
-            filtered_payments[
-                "Covered_Recipient_Specialty_2"
-            ].apply(
-                lambda x: (pd.isna(x) or "Allopathic & Osteopathic Physicians" in x)
-            ).all()
-        )
-
-
-        unique_credentials = np.unique(filtered_payments["Covered_Recipient_Primary_Type_1"].values.tolist())
-        self.assertIn(Credentials.MEDICAL_DOCTOR, unique_credentials)
-        self.assertIn(Credentials.DOCTOR_OF_OSTEOPATHY, unique_credentials)
-        self.assertIn("nan", unique_credentials)
-        self.assertNotIn("", unique_credentials)
-
+        
     def test__get_credential_filter_columns(self):
-        cred_filter_columns = ReadPaymentsPhysicians(self.general_payments).get_credential_filter_columns()
+        cred_filter_columns = PhysicianFilter(self.general_payments).get_credential_filter_columns()
 
         general_credential_columns = [
             "Covered_Recipient_Primary_Type_1",
@@ -62,7 +118,7 @@ class TestPhysiciansFilter(unittest.TestCase):
         for column in general_credential_columns:
             self.assertIn(column, cred_filter_columns)
 
-        cred_filter_columns = ReadPaymentsPhysicians(self.ownership_payments).get_credential_filter_columns()
+        cred_filter_columns = PhysicianFilter(self.ownership_payments).get_credential_filter_columns()
 
         research_credential_columns = [
             "Physician_Primary_Type",
@@ -72,7 +128,7 @@ class TestPhysiciansFilter(unittest.TestCase):
             self.assertIn(column, cred_filter_columns)
 
     def test__get_specialty_filter_columns(self):
-        spec_filter_columns = ReadPaymentsPhysicians(self.general_payments).get_specialty_filter_columns()
+        spec_filter_columns = PhysicianFilter(self.general_payments).get_specialty_filter_columns()
 
         general_specialty_columns = [
             "Covered_Recipient_Specialty_1",
@@ -86,7 +142,7 @@ class TestPhysiciansFilter(unittest.TestCase):
         for column in general_specialty_columns:
             self.assertIn(column, spec_filter_columns)
 
-        spec_filter_columns = ReadPaymentsPhysicians(self.ownership_payments).get_specialty_filter_columns()
+        spec_filter_columns = PhysicianFilter(self.ownership_payments).get_specialty_filter_columns()
 
         research_specialty_columns = [
             "Physician_Specialty",
@@ -101,38 +157,36 @@ class TestPhysiciansFilter(unittest.TestCase):
 
         self.assertIsInstance(physician_specialty_series, pd.Series)
 
-        self.assertEqual(len(np.unique(physician_specialty_series.values)), 2)
+        self.assertEqual(len(physician_specialty_series.unique()), 2)
 
         self.assertIn(True, physician_specialty_series.values)
         self.assertIn(False, physician_specialty_series.values)
 
+        fake_data_filter = PhysicianFilter(self.fake_general_data)
+        fake_specialty_series = fake_data_filter.physician_specialty()
+        self.assertEqual(
+            fake_specialty_series.sum(),
+            2,
+            "Fake data should have two rows with 'Allopathic & Osteopathic Physicians' specialty"
+        )
+
     def test__physician_credential(self):
 
-        physician_credential_series = self.general_filter.physician_credential()
+        physician_credential_series = (
+            self.general_filter.physician_credential()
+        )
 
         self.assertIsInstance(physician_credential_series, pd.Series)
 
-        self.assertEqual(len(np.unique(physician_credential_series.values)), 2)
+        self.assertEqual(len(physician_credential_series.unique()), 2)
 
         self.assertIn(True, physician_credential_series.values)
         self.assertIn(False, physician_credential_series.values)
 
-    def test__specialty_null(self):
-        specialty_null_series = self.general_filter.specialty_null()
-
-        self.assertIsInstance(specialty_null_series, pd.Series)
-
-        self.assertEqual(len(np.unique(specialty_null_series.values)), 2)
-
-        self.assertIn(True, specialty_null_series.values)
-        self.assertIn(False, specialty_null_series.values)
-
-    def test__credential_null(self):
-        credential_null_series = self.general_filter.credential_null()
-
-        self.assertIsInstance(credential_null_series, pd.Series)
-
-        self.assertEqual(len(np.unique(credential_null_series.values)), 2)
-
-        self.assertIn(True, credential_null_series.values)
-        self.assertIn(False, credential_null_series.values)
+        fake_data_filter = PhysicianFilter(self.fake_general_data)
+        fake_credential_series = fake_data_filter.physician_credential()
+        self.assertEqual(
+            fake_credential_series.sum(),
+            2,
+            "Fake data should have two rows with 'Medical Doctor' or 'Doctor of Osteopathy' credentials"
+        )

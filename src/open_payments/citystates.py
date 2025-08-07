@@ -6,7 +6,6 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Self
 
 from .choices import PaymentFilters, States
-from .helpers import ColumnMixin
 from .read import ReadPayments
 
 
@@ -95,7 +94,7 @@ class CityState(BaseModel):
         return self
 
 
-class CityStatesMixin(ColumnMixin):
+class CityStatesMixin:
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
 
@@ -132,7 +131,7 @@ class CityStatesMixin(ColumnMixin):
         return cols
 
 
-class PaymentCityStates(ReadPayments, CityStatesMixin):
+class PaymentCityStates(CityStatesMixin, ReadPayments):
 
     @classmethod
     def citystates(cls, payments: pd.DataFrame) -> pd.DataFrame:
@@ -228,7 +227,7 @@ def convert_citystates(citystates: str) -> list[CityState]:
     return converted
 
 
-class PaymentIDsCityStates(CityStatesMixin):
+class PaymentIDsCityStatesMixin(CityStatesMixin):
     """Filters OpenPayments payments by city and state."""
 
     @property

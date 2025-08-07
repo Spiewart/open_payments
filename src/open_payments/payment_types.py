@@ -1,9 +1,13 @@
 from typing import Union, Type
 
+import logging
 import pandas as pd
 
 from .helpers import get_file_suffix, open_payments_directory
 from .read import ReadPayments
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 class PaymentTypes(ReadPayments):
@@ -60,7 +64,7 @@ class PaymentTypes(ReadPayments):
         ) as writer:
             df.to_excel(writer, sheet_name="payment_types")
 
-            print("Successfully wrote types of payments to Excel.")
+            logging.info("Successfully wrote types of payments to Excel.")
 
     def payment_types(self) -> pd.DataFrame:
         """Returns a DataFrame of unique types of payments from the OpenPayments datasets."""

@@ -1,13 +1,18 @@
+import logging
 import re
 from typing import Type, Union
 
 import pandas as pd
 
 from .choices import PaymentFilters
-from .helpers import ColumnMixin, str_in_str
+from .helpers import str_in_str
+from .read import ReadPayments
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
-class NamesMixin(ColumnMixin):
+class NamesMixin:
 
     @property
     def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
@@ -45,7 +50,7 @@ class NamesMixin(ColumnMixin):
         return cols
 
 
-class PaymentIDsNames(NamesMixin):
+class PaymentIDsNamesMixin(NamesMixin):
     """Filters OpenPayments data by first, middle, and last names."""
 
     @property
@@ -69,7 +74,7 @@ class PaymentIDsNames(NamesMixin):
         Series by last name. Returns a DataFrame of payments
         that match the conflicted provider's last name."""
 
-        print(f"Merging Payments df with Conflicted df for {conflicted['last_name']}...")
+        logging.info(f"Merging Payments df with Conflicted df for {conflicted['last_name']}...")
 
         merged_payments = payments[
             payments["last_name"].str.lower()

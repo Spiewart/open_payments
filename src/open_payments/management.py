@@ -1,23 +1,30 @@
+import logging
 import os
+from typing import Literal, Type, Union
+
 import pandas as pd
-from typing import Union, Literal, Type
 
 from .helpers import get_file_suffix, open_payments_directory
 from .ids import PaymentIDs
 from .payment_types import PaymentTypes
 from .payments import PaymentsSearch
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
 
 def create_MD_DO_payments_csv(
     method: Union[Type[PaymentIDs], Type[PaymentsSearch]],
-    payment_class: Literal["general", "ownership", "research"],
-    year: Literal[2020, 2021, 2022, 2023]
+    payment_class: Union[
+        Literal["general", "ownership", "research"],
+    ],
+    year: Union[Literal[2020, 2021, 2022, 2023, 2024]]
 ) -> None:
 
     """Creates an csv file containing the year's OpenPayments payments for the
     payment type for MDs and DOs."""
 
-    print(
+    logging.info(
         f"Creating csv file for {payment_class} payments for {year}..."
     )
     path = open_payments_directory()
@@ -29,7 +36,7 @@ def create_MD_DO_payments_csv(
 
     if not os.path.exists(directory):
         os.makedirs(directory)
-        print(f"Directory {directory} created.")
+        logging.info(f"Directory {directory} created.")
 
     file_suffix = get_file_suffix([year], [payment_class])
 
@@ -39,9 +46,8 @@ def create_MD_DO_payments_csv(
     if file_name in os.listdir(
         directory
     ):
-        print(
-            f"File {directory}/{file_name} already exists. "
-            "Please delete the file if you want to overwrite it."
+        logging.warning(
+            f"File {directory}/{file_name} already exists. Please delete the file if you want to overwrite it."
         )
         return
 
@@ -49,13 +55,13 @@ def create_MD_DO_payments_csv(
         nrows=None,
         payment_classes=[payment_class],
         years=year,
+        # Default MD_DO_only is True
     )
 
     payments = id_maker.all_payments()
 
-    print(
-        payments.shape[0],
-        f"physician {payment_class} payments found for {year}."
+    logging.info(
+        f"{payments.shape[0]} physician {payment_class} payments found for {year}."
     )
 
     payments.to_csv(
@@ -65,12 +71,16 @@ def create_MD_DO_payments_csv(
 
 
 def create_id_MD_DO_payments_csvs() -> None:
-    """Creates csv files for all OpenPayments payments for MDs and DOs
-    for the years 2020-2023 for all payment types (general, ownership,
-    and research)."""
+    """Creates csv files from OpenPayments payments (2020-2024) that facilitate
+    cross-referencing project specific provider information for OpenPayments IDs
+    (Covered_Recipient_Profile_ID)."""
 
+    logging.info("Creating ID csv files for MDs and DOs...")
     for payment_class in ["general", "ownership", "research"]:
-        for year in [2020, 2021, 2022, 2023]:
+        for year in [2020, 2021, 2022, 2023, 2024]:
+            logging.info(
+                f"Creating csv file for {payment_class} payments for {year}..."
+            )
             create_MD_DO_payments_csv(PaymentIDs, payment_class, year)
 
 
@@ -80,7 +90,7 @@ def create_search_general_MD_DO_payments_csvs() -> None:
     and research)."""
 
     for payment_class in ["general"]:
-        for year in [2020, 2021, 2022, 2023]:
+        for year in [2020, 2021, 2022, 2023, 2024]:
             create_MD_DO_payments_csv(PaymentsSearch, payment_class, year)
 
 
@@ -90,12 +100,36 @@ def create_payment_types_excel() -> None:
     ).create_payment_types_excel()
 
 
-def load_MD_DO_id_search_payments() -> pd.DataFrame:
+def load_MD_DO_payments_csvs() -> pd.DataFrame:
     """Method that loads all OpenPayments payments for MDs and DOs
     for the years 2020-2023 for all payment types (general, ownership,
     and research). The method will return a dataframe with all the
     payments."""
 
+    path = open_payments_directory()
+
+    # Get the list of files in the directory
+    files = os.listdir(path)
+
+    # Filter the files to only include the ones that start with "MD_DO_payments"
+    files = [f for f in files if f.startswith("MD_DO_payments")]
+
+    # Load the files into a dataframe
+    payments = pd.concat(
+        [pd.read_csv(os.path.join(path, f)) for f in files],
+        ignore_index=True,
+    )
+
+    return payments
+
+
+def load_MD_DO_id_search_payments() -> pd.DataFrame:
+    """Method that loads all OpenPayments payments for MDs and DOs
+    for the years 2020-2024 for all payment types (general, ownership,
+    and research). The method will return a dataframe with all the
+    payments."""
+
+    logging.info("Loading MD/DO payments for ID search...")
     path = open_payments_directory()
 
     path = f"{path}/PaymentIDs_csvs"
@@ -105,7 +139,10 @@ def load_MD_DO_id_search_payments() -> pd.DataFrame:
 
     # Filter the files to only include the ones that start with "MD_DO_payments"
     files = [f for f in files if f.startswith("MD_DO_payments")]
-
+    logging.info(
+        f"Found {len(files)} files for MD/DO payments: "
+        f"{', '.join([file.split('MD_DO_payments_')[-1] for file in files])}"
+    )
     # Load the files into a dataframe
     payments = pd.concat(
         [pd.read_csv(
@@ -117,7 +154,7 @@ def load_MD_DO_id_search_payments() -> pd.DataFrame:
             }) for f in files],
         ignore_index=True,
     )
-
+    logging.info(f"Loaded {payments.shape[0]} MD/DO payments for ID search.")
     return payments
 
 
