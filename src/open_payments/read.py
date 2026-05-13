@@ -1,6 +1,9 @@
 from typing import Literal, Union, Type
 
+import glob
 import logging
+import os
+
 import pandas as pd
 
 from .helpers import open_payments_directory
@@ -18,10 +21,7 @@ class ReadPayments:
 
     def __init__(
         self,
-        years: Union[
-            list[Literal[2020, 2021, 2022, 2023, 2024]],
-            Literal[2020, 2021, 2022, 2023, 2024],
-        ] = None,
+        years: Union[list[int], int, None] = None,
         payment_classes: Union[
             list[Literal["general", "ownership", "research"]],
             Literal["general", "ownership", "research"],
@@ -164,12 +164,21 @@ class ReadPayments:
 
         return payment_chunk
 
-    @staticmethod
     def get_payment_csv_path(
+        self,
         payment_class: Literal["general", "ownership", "research"],
-        year: Union[Literal[2020, 2021, 2022, 2023], int]
+        year: int,
     ) -> str:
-        """Returns the csv path for the specified payment class and year."""
+        """Returns the csv path (relative to payments_folder) for the
+        specified payment class and year.
+
+        Resolves the CMS publication-date postfix by globbing the year
+        subdirectory. If multiple matches exist (e.g. CMS reissued the
+        year's data after a refresh), returns the file with the most recent
+        modification time. CMS P-date postfixes are MMDDYYYY-formatted and
+        do NOT sort by lexical order to reflect recency, so mtime is the
+        reliable signal here.
+        """
 
         prefixes = {
             "general": "GNRL",
@@ -177,12 +186,16 @@ class ReadPayments:
             "research": "RSRCH",
         }
 
-        if year == 2024:
-            postfix = "P06302025_06162025.csv"
-        else:
-            postfix = "P06282024_06122024.csv"
-
-        return f"{str(year)}/OP_DTL_{prefixes[payment_class]}_PGYR{str(year)}_{postfix}"
+        pattern = (
+            f"{self.payments_folder}/{year}/"
+            f"OP_DTL_{prefixes[payment_class]}_PGYR{year}_*.csv"
+        )
+        matches = sorted(glob.glob(pattern), key=os.path.getmtime)
+        if not matches:
+            raise FileNotFoundError(
+                f"No OpenPayments CSV matching pattern: {pattern}"
+            )
+        return os.path.relpath(matches[-1], self.payments_folder)
 
     def update_csv_kwargs(
         self,
