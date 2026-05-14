@@ -1,0 +1,4 @@
+Physician_Profile_ID,Physician_NPI,Physician_Last_Name,Physician_First_Name,Physician_Middle_Name,Physician_Name_Suffix,Physician_Primary_Type,Physician_Specialty,Recipient_City,Recipient_State,Total_Amount_Invested_USDollars,Value_of_Interest,Terms_of_Interest,Submitting_Applicable_Manufacturer_or_Applicable_GPO_Name,Applicable_Manufacturer_or_Applicable_GPO_Making_Payment_Name
+101,1000000101,ADAMS,JOHN,MICHAEL,,Medical Doctor,Allopathic & Osteopathic Physicians|Family Medicine|,Manhattan,NY,500.0,250.0,Stock,Acme Pharma,Acme Pharma
+601,1000000601,GARCIA,MARIA,LUIS,,Doctor of Osteopathy,Allopathic & Osteopathic Physicians|Family Medicine|,Miami,FL,500.0,250.0,Stock,Acme Pharma,Acme Pharma
+,1000000001,OWNNULL,X,Q,,Medical Doctor,Allopathic & Osteopathic Physicians|Family Medicine|,Manhattan,NY,500.0,250.0,Stock,Acme Pharma,Acme Pharma

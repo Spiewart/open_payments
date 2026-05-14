@@ -1,13 +1,12 @@
 import unittest
 from typing import Union
 
-import numpy as np
 import pandas as pd
 
+from ..choices import FilterOutcome
 from ..citystates import CityState
 from ..credentials import Credentials
 from ..ids import ConflictedPaymentIDs, PaymentFilters, PaymentIDs, Unmatcheds
-from ..physicians_only import PhysicianFilter
 from ..specialtys import Specialtys
 
 
@@ -24,7 +23,9 @@ class TestPaymentIDs(unittest.TestCase):
         self.payment_ids.general_payments = self.payment_ids.read_payments_csvs(
             payment_class="general",
         )
-        self.assertFalse(self.payment_ids.general_payments["Covered_Recipient_Profile_ID"].isnull().any())
+        self.assertFalse(
+            self.payment_ids.general_payments["Covered_Recipient_Profile_ID"].isnull().any()
+        )
 
     def test__all_payments(self):
         all_payments = self.payment_ids.all_payments()
@@ -34,8 +35,13 @@ class TestPaymentIDs(unittest.TestCase):
 
         # Check if the DataFrame has the expected columns
         expected_columns = [
-            "profile_id", "first_name", "middle_name", "last_name",
-            "specialtys", "credentials", "citystates"
+            "profile_id",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "specialtys",
+            "credentials",
+            "citystates",
         ]
         for col in expected_columns:
             self.assertIn(col, all_payments.columns)
@@ -64,20 +70,22 @@ def add_conflicted_to_conflicteds_df(
     conflicteds = pd.concat(
         [
             conflicteds,
-            pd.DataFrame({
-                "provider_pk": provider_pk,
-                "first_name": first_name,
-                "last_name": last_name,
-                "middle_initial_1": middle_initial_1,
-                "middle_initial_2": middle_initial_2,
-                "middle_name_1": middle_name_1,
-                "middle_name_2": middle_name_2,
-                "credentials": credentials,
-                "specialtys": specialtys,
-                "citystates": citystates,
-            })
+            pd.DataFrame(
+                {
+                    "provider_pk": provider_pk,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "middle_initial_1": middle_initial_1,
+                    "middle_initial_2": middle_initial_2,
+                    "middle_name_1": middle_name_1,
+                    "middle_name_2": middle_name_2,
+                    "credentials": credentials,
+                    "specialtys": specialtys,
+                    "citystates": citystates,
+                }
+            ),
         ],
-        ignore_index=True
+        ignore_index=True,
     )
 
     return conflicteds
@@ -91,10 +99,9 @@ def add_conflict_prefix(conflicteds: pd.DataFrame) -> pd.DataFrame:
 
     return conflicteds.rename(
         columns={
-            col: f"conflict_{col}" for col in conflicteds.columns if (
-                col != "last_name" and
-                col != "provider_pk"
-            )
+            col: f"conflict_{col}"
+            for col in conflicteds.columns
+            if (col != "last_name" and col != "provider_pk")
         }
     )
 
@@ -119,17 +126,19 @@ def add_payment_id_to_payments_df(
     payments = pd.concat(
         [
             payments,
-            pd.DataFrame({
-                "profile_id": profile_id,
-                "first_name": first_name,
-                "middle_name": middle_name,
-                "last_name": last_name,
-                "specialtys": [specialtys],
-                "credentials": [credentials],
-                "citystates": [citystates],
-            }),
+            pd.DataFrame(
+                {
+                    "profile_id": profile_id,
+                    "first_name": first_name,
+                    "middle_name": middle_name,
+                    "last_name": last_name,
+                    "specialtys": [specialtys],
+                    "credentials": [credentials],
+                    "citystates": [citystates],
+                }
+            ),
         ],
-        ignore_index=True
+        ignore_index=True,
     )
 
     return payments
@@ -137,7 +146,8 @@ def add_payment_id_to_payments_df(
 
 class TestConflictedPaymentIDs(unittest.TestCase):
     def setUp(self):
-        self.fake_conflicteds = pd.DataFrame({
+        self.fake_conflicteds = pd.DataFrame(
+            {
                 "provider_pk": [1, 2, 3, 4],
                 "first_name": ["John", "Judd", "Joey", "Dave"],
                 "last_name": ["Doe", "Smith", "Johnson", "Ebalt"],
@@ -153,56 +163,79 @@ class TestConflictedPaymentIDs(unittest.TestCase):
                 ],
                 "specialtys": [
                     [
-                        Specialtys(
-                            specialty="Pediatrics",
-                            subspecialty="Gastroenterology"
-                        ),
+                        Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology"),
                     ],
                     [Specialtys(specialty="Family Medicine")],
                     [Specialtys(specialty="Internal Medicine")],
                     [
                         Specialtys(specialty="Internal Medicine", subspecialty="Rheumatology"),
-                        Specialtys(specialty="Internal Medicine", subspecialty="Chief Resident")
-                    ]
+                        Specialtys(specialty="Internal Medicine", subspecialty="Chief Resident"),
+                    ],
                 ],
                 "citystates": [
                     [CityState(city="New York", state="NY")],
                     [CityState(city="Los Angeles", state="NV")],
                     [CityState(city="Chicago", state="IL")],
-                    [CityState(city="Saint Paul", state="MN")]
+                    [CityState(city="Saint Paul", state="MN")],
                 ],
-            })
+            }
+        )
 
-        self.fake_payments = pd.DataFrame({
-            "profile_id": [1, 2, 3],
-            "first_name": ["John", "Jane", "Joe"],
-            "middle_name": ["Alpha", "Edward", None],
-            "last_name": ["Doe", "Smith", "Johnson"],
-            "specialtys": [
-                [Specialtys(specialty="Pediatrics", subspecialty="Neonatology")],
-                [Specialtys(specialty="Surgery")],
-                [Specialtys(specialty="Internal Medicine")]
-            ],
-            "credentials": [
-                [Credentials.MEDICAL_DOCTOR],
-                [Credentials.DOCTOR_OF_OSTEOPATHY],
-                [Credentials.PHYSICIAN_ASSISTANT],
-            ],
-            "citystates": [
-                [CityState(city="New York", state="NY")],
-                [CityState(city="Los Angeles", state="CA")],
-                [CityState(city="Rochester", state="IL")]
-            ],
-        })
+        self.fake_payments = pd.DataFrame(
+            {
+                "profile_id": [1, 2, 3],
+                "first_name": ["John", "Jane", "Joe"],
+                "middle_name": ["Alpha", "Edward", None],
+                "last_name": ["Doe", "Smith", "Johnson"],
+                "specialtys": [
+                    [Specialtys(specialty="Pediatrics", subspecialty="Neonatology")],
+                    [Specialtys(specialty="Surgery")],
+                    [Specialtys(specialty="Internal Medicine")],
+                ],
+                "credentials": [
+                    [Credentials.MEDICAL_DOCTOR],
+                    [Credentials.DOCTOR_OF_OSTEOPATHY],
+                    [Credentials.PHYSICIAN_ASSISTANT],
+                ],
+                "citystates": [
+                    [CityState(city="New York", state="NY")],
+                    [CityState(city="Los Angeles", state="CA")],
+                    [CityState(city="Rochester", state="IL")],
+                ],
+            }
+        )
         self.reader = ConflictedPaymentIDs(
-            conflicteds=self.fake_conflicteds,
-            payments=self.fake_payments
+            conflicteds=self.fake_conflicteds, payments=self.fake_payments
         )
         # Add more mock data to payments
         self.extra_mock_data = [
-            [4, "Nathan", "EG", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
-            [5, "Handsy", None, "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
-            [6, "Johnson", "C", "Doe", [Specialtys(specialty="Pediatrics")], [Credentials.MEDICAL_DOCTOR], [CityState(city="New York", state="NY")]],
+            [
+                4,
+                "Nathan",
+                "EG",
+                "Doe",
+                [Specialtys(specialty="Pediatrics")],
+                [Credentials.MEDICAL_DOCTOR],
+                [CityState(city="New York", state="NY")],
+            ],
+            [
+                5,
+                "Handsy",
+                None,
+                "Doe",
+                [Specialtys(specialty="Pediatrics")],
+                [Credentials.MEDICAL_DOCTOR],
+                [CityState(city="New York", state="NY")],
+            ],
+            [
+                6,
+                "Johnson",
+                "C",
+                "Doe",
+                [Specialtys(specialty="Pediatrics")],
+                [Credentials.MEDICAL_DOCTOR],
+                [CityState(city="New York", state="NY")],
+            ],
         ]
 
     def test__search_for_conflicteds_ids(self):
@@ -252,23 +285,16 @@ class TestConflictedPaymentIDs(unittest.TestCase):
 
         self.assertNotIn("Ebalt", last_names)
         self.assertIn("Ebalt", self.reader.unmatched["last_name"].values.tolist())
-        self.assertEqual(
-            self.reader.unmatched.iloc[0]["unmatched"],
-            Unmatcheds.NOLASTNAME
-        )
+        self.assertEqual(self.reader.unmatched.iloc[0]["unmatched"], Unmatcheds.NOLASTNAME)
 
     def test__merge_by_lastname(self):
         for data in self.extra_mock_data:
-            self.reader.payments = add_payment_id_to_payments_df(
-                self.reader.payments,
-                *data
-            )
+            self.reader.payments = add_payment_id_to_payments_df(self.reader.payments, *data)
 
         self.reader.conflicteds = add_conflict_prefix(self.reader.conflicteds)
 
         merged = self.reader.merge_by_last_name(
-            payments=self.reader.payments,
-            conflicted=self.reader.conflicteds.iloc[0]
+            payments=self.reader.payments, conflicted=self.reader.conflicteds.iloc[0]
         )
 
         self.assertIsInstance(merged, pd.DataFrame)
@@ -292,62 +318,67 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.assertEqual(len(merged), 4)
 
     def test__merge_by_lastname_two_lastnames(self):
-        conflicteds = pd.DataFrame({
-            "provider_pk": [11],
-            "first_name": ["John"],
-            "last_name": ["Doe Smith"],
-        })
+        conflicteds = pd.DataFrame(
+            {
+                "provider_pk": [11],
+                "first_name": ["John"],
+                "last_name": ["Doe Smith"],
+            }
+        )
 
         merged = self.reader.merge_by_last_name(
-            payments=self.reader.payments,
-            conflicted=conflicteds.iloc[0]
+            payments=self.reader.payments, conflicted=conflicteds.iloc[0]
         )
         self.assertIsInstance(merged, pd.DataFrame)
         self.assertEqual(len(merged), 2)
 
     def test__filter_by_credential(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "credentials": [Credentials.MEDICAL_DOCTOR],
-            "conflict_credentials": [
-                Credentials.NURSE_PRACTITIONER,
-                Credentials.PHYSICIAN_ASSISTANT
-            ],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "credentials": [Credentials.MEDICAL_DOCTOR],
+                "conflict_credentials": [
+                    Credentials.NURSE_PRACTITIONER,
+                    Credentials.PHYSICIAN_ASSISTANT,
+                ],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_credential(
             fake_row,
         )
 
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
         fake_row.update({"conflict_credentials": [Credentials.MEDICAL_DOCTOR]})
         match = ConflictedPaymentIDs.filter_by_credential(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_first_name(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "first_name": "John",
-            "conflict_first_name": "Judd",
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "first_name": "John",
+                "conflict_first_name": "Judd",
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
         match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_first_name": "John"})
         match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
         fake_row["conflict_first_name"] = None
         fake_row["filters"] = [PaymentFilters.LASTNAME]
@@ -355,45 +386,41 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         match = ConflictedPaymentIDs.filter_by_firstname(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_specialty(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "specialtys": [
-                Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")
-            ],
-            "conflict_specialtys": [
-                Specialtys(specialty="Family Medicine"),
-                Specialtys(specialty="Internal Medicine")
-            ],
-            "filters": [PaymentFilters.LASTNAME],
-        })
-        match = ConflictedPaymentIDs.filter_by_specialty(
-            fake_row,
-        )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
-        fake_row.update(
-            {"conflict_specialtys": [Specialtys(specialty="Pediatrics")]}
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")],
+                "conflict_specialtys": [
+                    Specialtys(specialty="Family Medicine"),
+                    Specialtys(specialty="Internal Medicine"),
+                ],
+                "filters": [PaymentFilters.LASTNAME],
+            }
         )
         match = ConflictedPaymentIDs.filter_by_specialty(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
+        fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics")]})
+        match = ConflictedPaymentIDs.filter_by_specialty(
+            fake_row,
+        )
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_specialty_partial(self):
-        fake_row = pd.Series({
-            "specialtys": [
-                Specialtys(specialty="Family Medicine", subspecialty=None)
-            ],
-            "conflict_specialtys": [
-                Specialtys(specialty="Family", subspecialty=None)
-            ],
-            "filters": [],
-        })
+        fake_row = pd.Series(
+            {
+                "specialtys": [Specialtys(specialty="Family Medicine", subspecialty=None)],
+                "conflict_specialtys": [Specialtys(specialty="Family", subspecialty=None)],
+                "filters": [],
+            }
+        )
 
         self.assertTrue(
             ConflictedPaymentIDs.filter_by_specialty(
@@ -401,15 +428,13 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             )
         )
 
-        fake_row_reverse = pd.Series({
-            "specialtys": [
-                Specialtys(specialty="Family", subspecialty=None)
-            ],
-            "conflict_specialtys": [
-                Specialtys(specialty="Family Medicine", subspecialty=None)
-            ],
-            "filters": [],
-        })
+        fake_row_reverse = pd.Series(
+            {
+                "specialtys": [Specialtys(specialty="Family", subspecialty=None)],
+                "conflict_specialtys": [Specialtys(specialty="Family Medicine", subspecialty=None)],
+                "filters": [],
+            }
+        )
         self.assertTrue(
             ConflictedPaymentIDs.filter_by_specialty(
                 fake_row_reverse,
@@ -417,159 +442,191 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         )
 
     def test__filter_by_subspecialty(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "specialtys": [
-                Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")
-            ],
-            "conflict_specialtys": [
-                Specialtys(specialty="Family Medicine"),
-                Specialtys(specialty="Internal Medicine")
-            ],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")],
+                "conflict_specialtys": [
+                    Specialtys(specialty="Family Medicine"),
+                    Specialtys(specialty="Internal Medicine"),
+                ],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
         match = ConflictedPaymentIDs.filter_by_subspecialty(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
-        fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")]})
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
+        fake_row.update(
+            {
+                "conflict_specialtys": [
+                    Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")
+                ]
+            }
+        )
         match = ConflictedPaymentIDs.filter_by_subspecialty(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_fullspecialty(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "specialtys": [
-                Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")
-            ],
-            "conflict_specialtys": [
-                Specialtys(specialty="Family Medicine"),
-                Specialtys(specialty="Internal Medicine")
-            ],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")],
+                "conflict_specialtys": [
+                    Specialtys(specialty="Family Medicine"),
+                    Specialtys(specialty="Internal Medicine"),
+                ],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
         match = ConflictedPaymentIDs.filter_by_fullspecialty(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
-        fake_row.update({"conflict_specialtys": [Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")]})
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
+        fake_row.update(
+            {
+                "conflict_specialtys": [
+                    Specialtys(specialty="Pediatrics", subspecialty="Gastroenterology")
+                ]
+            }
+        )
         match = ConflictedPaymentIDs.filter_by_fullspecialty(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_city(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "citystates": [CityState(city="New York", state="NY")],
-            "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "citystates": [CityState(city="New York", state="NY")],
+                "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_city(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
         match = ConflictedPaymentIDs.filter_by_city(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_state(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "citystates": [CityState(city="New York", state="NY")],
-            "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "citystates": [CityState(city="New York", state="NY")],
+                "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
         match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
-        fake_row.update({"conflict_citystates": [CityState(city="New York", state="New York"), CityState(city="Los Angeles", state="CA")]})
+        fake_row.update(
+            {
+                "conflict_citystates": [
+                    CityState(city="New York", state="New York"),
+                    CityState(city="Los Angeles", state="CA"),
+                ]
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
-        fake_row.update({
-            "conflict_citystates": [CityState(city="New York", state="NY"), CityState(city="Los Angeles", state="CA")],
-            "citystates": [CityState(city="New York", state="New York")],
-        })
+        fake_row.update(
+            {
+                "conflict_citystates": [
+                    CityState(city="New York", state="NY"),
+                    CityState(city="Los Angeles", state="CA"),
+                ],
+                "citystates": [CityState(city="New York", state="New York")],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_state(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_citystate(self):
 
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "citystates": [CityState(city="New York", state="NY")],
-            "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "citystates": [CityState(city="New York", state="NY")],
+                "conflict_citystates": [CityState(city="Los Angeles", state="CA")],
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_citystate(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_citystates": [CityState(city="New York", state="NY")]})
         match = ConflictedPaymentIDs.filter_by_citystate(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_by_middle_initial(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "middle_name": "Alpha",
-            "conflict_middle_initial_1": "B",
-            "conflict_middle_initial_2": None,
-            "conflict_middle_name_1": None,
-            "conflict_middle_name_2": None,
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "middle_name": "Alpha",
+                "conflict_middle_initial_1": "B",
+                "conflict_middle_initial_2": None,
+                "conflict_middle_name_1": None,
+                "conflict_middle_name_2": None,
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_middle_initial(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_middle_initial_1": "A"})
         match = ConflictedPaymentIDs.filter_by_middle_initial(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__middle_initial_match(self):
         self.assertFalse(
@@ -622,56 +679,51 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         )
 
     def test__filter_by_middlename(self):
-        fake_row = pd.Series({
-            "provider_pk": 1,
-            "middle_name": "Alpha",
-            "conflict_middle_name_1": "Beta",
-            "conflict_middle_name_2": None,
-            "conflict_middle_initial_1": None,
-            "conflict_middle_initial_2": None,
-            "filters": [PaymentFilters.LASTNAME],
-        })
+        fake_row = pd.Series(
+            {
+                "provider_pk": 1,
+                "middle_name": "Alpha",
+                "conflict_middle_name_1": "Beta",
+                "conflict_middle_name_2": None,
+                "conflict_middle_initial_1": None,
+                "conflict_middle_initial_2": None,
+                "filters": [PaymentFilters.LASTNAME],
+            }
+        )
 
         match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertFalse(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertNotEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_middle_name_1": "Alpha"})
         match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
         fake_row.update({"conflict_middle_name_2": "Alpha"})
         match = ConflictedPaymentIDs.filter_by_middlename(
             fake_row,
         )
-        self.assertIsInstance(match, bool)
-        self.assertTrue(match)
+        self.assertIsInstance(match, FilterOutcome)
+        self.assertEqual(match, FilterOutcome.MATCH)
 
     def test__filter_payments_for_conflicted(self):
         for data in self.extra_mock_data:
-            self.reader.payments = add_payment_id_to_payments_df(
-                self.reader.payments,
-                *data
-            )
+            self.reader.payments = add_payment_id_to_payments_df(self.reader.payments, *data)
         self.reader.conflicteds = add_conflict_prefix(self.reader.conflicteds)
         doe_conflicted = self.reader.conflicteds.iloc[0]
 
-        self.assertTrue(
-            self.reader.unique_ids.empty
-        )
+        self.assertTrue(self.reader.unique_ids.empty)
         print(self.reader.filters)
         self.reader.filter_payments_for_conflicted(
             conflicted=doe_conflicted,
         )
 
-        self.assertFalse(
-            self.reader.unique_ids.empty
-        )
+        self.assertFalse(self.reader.unique_ids.empty)
 
         doe_id = self.reader.unique_ids.iloc[0]
 
@@ -689,23 +741,14 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.reader.filter_payments_for_conflicted(
             conflicted=self.reader.conflicteds.iloc[3],
         )
-        self.assertFalse(
-            self.reader.unique_ids.empty
-        )
-        self.assertIn(
-            "Ebalt",
-            self.reader.unmatched["last_name"].values.tolist()
-        )
-        self.assertEqual(
-            self.reader.unmatched.iloc[0]["unmatched"],
-            Unmatcheds.NOLASTNAME
-        )
+        self.assertFalse(self.reader.unique_ids.empty)
+        self.assertIn("Ebalt", self.reader.unmatched["last_name"].values.tolist())
+        self.assertEqual(self.reader.unmatched.iloc[0]["unmatched"], Unmatcheds.NOLASTNAME)
 
         # Test that the algorithm still works when there are duplicate,
         # equally likely payments
         self.reader.payments = add_payment_id_to_payments_df(
-            self.reader.payments,
-            *self.fake_payments.iloc[0].values.tolist()
+            self.reader.payments, *self.fake_payments.iloc[0].values.tolist()
         )
 
         self.reader.unique_ids = pd.DataFrame()
@@ -714,14 +757,9 @@ class TestConflictedPaymentIDs(unittest.TestCase):
             conflicted=doe_conflicted,
         )
 
-        self.assertFalse(
-            self.reader.unique_ids.empty
-        )
+        self.assertFalse(self.reader.unique_ids.empty)
 
-        self.assertIn(
-            "Doe",
-            self.reader.unique_ids["last_name"].values.tolist()
-        )
+        self.assertIn("Doe", self.reader.unique_ids["last_name"].values.tolist())
 
         # Test that the algorithm will filter by credential
 
@@ -736,8 +774,7 @@ class TestConflictedPaymentIDs(unittest.TestCase):
 
         # Add a second "Smith" row with a non-MD/DO credential
         self.reader.payments = add_payment_id_to_payments_df(
-            self.reader.payments,
-            *smith_copy.values.tolist()
+            self.reader.payments, *smith_copy.values.tolist()
         )
 
         self.reader.unique_ids = pd.DataFrame()
@@ -745,22 +782,11 @@ class TestConflictedPaymentIDs(unittest.TestCase):
         self.reader.filter_payments_for_conflicted(
             conflicted=self.reader.conflicteds.iloc[1],
         )
-        self.assertFalse(
-            self.reader.unique_ids.empty
-        )
-        self.assertIn(
-            "Smith",
-            self.reader.unique_ids["last_name"].values.tolist()
-        )
-        self.assertIn(
-            PaymentFilters.CREDENTIAL,
-            self.reader.unique_ids.iloc[0]["filters"]
-        )
+        self.assertFalse(self.reader.unique_ids.empty)
+        self.assertIn("Smith", self.reader.unique_ids["last_name"].values.tolist())
+        self.assertIn(PaymentFilters.CREDENTIAL, self.reader.unique_ids.iloc[0]["filters"])
         self.assertEqual(
             self.reader.unique_ids.iloc[0]["profile_id"],
             2,
         )
-        self.assertNotEqual(
-            self.reader.unique_ids.iloc[0]["profile_id"],
-            7
-        )
+        self.assertNotEqual(self.reader.unique_ids.iloc[0]["profile_id"], 7)

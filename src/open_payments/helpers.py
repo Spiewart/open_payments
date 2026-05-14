@@ -1,12 +1,11 @@
 import logging
 import os
-import re
-from typing import Literal, Union
+from typing import Union
 
 import pandas as pd
 
 from .choices import PaymentFilters
-
+from .config import Settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,16 +13,18 @@ logging.basicConfig(level=logging.INFO)
 
 def chunker(seq, size):
     # https://stackoverflow.com/questions/434287/how-to-iterate-over-a-list-in-chunks
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+    return (seq[pos : pos + size] for pos in range(0, len(seq), size))
 
 
-def get_conflicted_ids_from_file(data_directory: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def get_conflicted_ids_from_file(
+    data_directory: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Method that returns a tuple of DataFrames containing the matched
     IDs of conflicteds and conflicteds who were unmatched after searching
     for an ID in OpenPayments."""
 
     if data_directory is None:
-        data_directory = get_data_directory()
+        data_directory = str(Settings().data_dir)
 
     path = f"{data_directory}/conflicteds_ids.xlsx"
 
@@ -34,71 +35,84 @@ def get_conflicted_ids_from_file(data_directory: str | None = None) -> tuple[pd.
         unmatched_df = pd.read_excel(xls, sheet_name="unmatched")
         # Read every other sheet into a DataFrame
 
-        unmatched_options = pd.concat(
-            [
-                pd.read_excel(xls, sheet_name=sheet)
-                for sheet in xls.sheet_names
-                if str_can_be_int(sheet)
-            ],
-            ignore_index=True,
-        ) if len(xls.sheet_names) > 3 else pd.DataFrame()
+        unmatched_options = (
+            pd.concat(
+                [
+                    pd.read_excel(xls, sheet_name=sheet)
+                    for sheet in xls.sheet_names
+                    if str_can_be_int(sheet)
+                ],
+                ignore_index=True,
+            )
+            if len(xls.sheet_names) > 3
+            else pd.DataFrame()
+        )
 
     return matched_df, unmatched_df, unmatched_options
 
 
-def get_data_directory() -> str:
-    return f"{os.path.expanduser('~')}/open_payments_datasets"
-
-
 def get_file_suffix(
-    years: Union[
-            list[Literal[2020, 2021, 2022, 2023, 2024]],
-            Literal[2020, 2021, 2022, 2023, 2024],
-        ],
-    payment_classes: Union[
-        list[Literal["general", "ownership", "research"]],
-        Literal["general", "ownership", "research"],
-        None,
-    ],
+    years: Union[list[int], int, None],
+    payment_classes: Union[list[str], str, None],
+    settings: Union[Settings, None] = None,
 ) -> str:
-    if not isinstance(payment_classes, list):
-        payment_classes = [payment_classes] if payment_classes is not None else []
+    """Returns a filename suffix describing which years/classes a derived file
+    covers, OR the empty string if the inputs are the complete default set.
 
-    return (
-            f"_{'_'.join(payment_classes)}_{('_'.join([str(year) for year in years] if isinstance(years, list) else [str(years)]))}"
-            if (
-                isinstance(years, list) and any(
-                    year not in years for year in [2020, 2021, 2022, 2023, 2024]
-                ) or isinstance(
-                    years,
-                    int,
-                ) and years not in [2020, 2021, 2022, 2023, 2024]
-            )
-            or (
-                payment_classes is not None
-                and any(
-                    payment_class not in payment_classes
-                    for payment_class in ["general", "research", "ownership"]
-                )
-            )
-            else ""
-        )
+    The "complete set" is read from `settings.years` and `settings.payment_classes`
+    (defaulting to `Settings()` if not provided). Previously the complete set
+    was hardcoded to `[2020-2024]` x `[general, ownership, research]` which
+    drifted out of sync with callers — now it tracks Settings.
+    """
+    if settings is None:
+        settings = Settings()
+
+    if isinstance(years, int):
+        years_list: list[int] = [years]
+    elif years is None:
+        years_list = []
+    else:
+        years_list = list(years)
+
+    if isinstance(payment_classes, str):
+        classes_list: list[str] = [payment_classes]
+    elif payment_classes is None:
+        classes_list = []
+    else:
+        classes_list = list(payment_classes)
+
+    years_complete = set(years_list) == set(settings.years)
+    classes_complete = set(classes_list) == set(settings.payment_classes)
+
+    if years_complete and classes_complete:
+        return ""
+
+    return f"_{'_'.join(classes_list)}_{'_'.join(str(y) for y in years_list)}"
 
 
-def load_all_MD_DO_payments_csvs() -> pd.DataFrame:
-    """Imports all OpenPayments payments for MDs and DOs
-    for the years 2020-2023 for all payment types (general, ownership,
-    and research) into a single dataframe."""
-    path = open_payments_directory()
+def load_all_MD_DO_payments_csvs(
+    settings: Union[Settings, None] = None,
+) -> pd.DataFrame:
+    """Imports cached per-(year, class) `MD_DO_payments*.csv` files from
+    `settings.data_dir` and concatenates them into one DataFrame.
+
+    Iterates the cartesian product of `settings.years` x `settings.payment_classes`,
+    so the previously-hardcoded 2020-2023 range is now driven by config.
+    """
+    if settings is None:
+        settings = Settings()
+    path = str(settings.data_dir)
 
     all_payments = pd.DataFrame()
 
-    for payment_class in ["general", "ownership", "research"]:
-        for year in [2020, 2021, 2022, 2023]:
-            file_suffix = get_file_suffix(years=year, payment_classes=payment_class)
+    for payment_class in settings.payment_classes:
+        for year in settings.years:
+            file_suffix = get_file_suffix(
+                years=year, payment_classes=payment_class, settings=settings
+            )
             file_name = f"MD_DO_payments{file_suffix}.csv"
 
-            if file_name not in os.listdir(path):
+            if not os.path.isdir(path) or file_name not in os.listdir(path):
                 logging.warning(
                     f"File {path}/{file_name} does not exist. Please create the file first."
                 )
@@ -117,10 +131,6 @@ def load_all_MD_DO_payments_csvs() -> pd.DataFrame:
     return all_payments
 
 
-def open_payments_directory() -> str:
-    return os.path.join(os.path.expanduser('~'), 'open_payments_datasets')
-
-
 def str_can_be_int(
     s: str,
 ) -> bool:
@@ -137,23 +147,13 @@ def str_in_str(
     string: str,
     ignore_case: bool = True,
 ) -> bool:
-    flags = [re.IGNORECASE] if ignore_case else []
-    # sub() out parentheses in the search terms
-    to_match = re.sub(r"\(|\)", "", to_match)
-    # sub() out brackets in the search terms
-    to_match = re.sub(r"\[|\]", "", to_match)
+    """Deprecated shim — kept for any external callers. Prefer
+    `open_payments.names.within_one_edit_substring`. Will be removed once
+    Section 7 lands the public API.
+    """
+    from .names import within_one_edit_substring
 
-    for i, _ in enumerate(to_match):
-        if (
-            # Check for a substitution
-            re.search(f"{to_match[:i]}.{to_match[i+1:]}", string, *flags)
-            # Check for an addition
-            or re.search(f"{to_match[:i]}.{to_match[i:]}", string, *flags)
-            # Check for a deletion
-            or re.search(f"{to_match[:i]}{to_match[i+1:]}", string, *flags)
-        ):
-            return True
-    return False
+    return within_one_edit_substring(to_match, string, ignore_case=ignore_case)
 
 
 def update_or_create_conflicteds_ids(
@@ -164,14 +164,14 @@ def update_or_create_conflicteds_ids(
 ) -> None:
 
     if data_directory is None:
-        data_directory = get_data_directory()
+        data_directory = str(Settings().data_dir)
 
     # Check if the conflicteds_ids.xlsx file exists
     if os.path.exists(f"{data_directory}/conflicteds_ids.xlsx"):
         # If it exists, read the existing data
-        (
-            matched_df, unmatched_df, existing_options
-            ) = get_conflicted_ids_from_file(data_directory=data_directory)
+        (matched_df, unmatched_df, existing_options) = get_conflicted_ids_from_file(
+            data_directory=data_directory
+        )
         # Update the options DataFrame with the new unmatched options
         unmatched_options = update_unmatched_options(
             unmatched_options=unmatched_options,
@@ -180,27 +180,34 @@ def update_or_create_conflicteds_ids(
         )
 
         for matched in unique_ids.iterrows():
-            matched_df = update_or_insert_provider(
-                provider_row=matched[1],
-                df=matched_df,
-            ) if not matched[1].empty else matched_df
+            matched_df = (
+                update_or_insert_provider(
+                    provider_row=matched[1],
+                    df=matched_df,
+                )
+                if not matched[1].empty
+                else matched_df
+            )
         for unmatched in unmatcheds.iterrows():
-            unmatched_df = update_or_insert_provider(
-                provider_row=unmatched[1],
-                df=unmatched_df,
-            ) if not unmatched[1].empty else unmatched_df
+            unmatched_df = (
+                update_or_insert_provider(
+                    provider_row=unmatched[1],
+                    df=unmatched_df,
+                )
+                if not unmatched[1].empty
+                else unmatched_df
+            )
 
         # Write the updated DataFrames back to the Excel file
         with pd.ExcelWriter(f"{data_directory}/conflicteds_ids.xlsx") as writer:
             # Write the updated DataFrames to the same sheets
             matched_df.to_excel(writer, sheet_name="conflicteds_ids", index=False)
             unmatched_df.to_excel(writer, sheet_name="unmatched", index=False)
-            matched_df[matched_df["filters"].apply(
-                lambda x: (
-                    PaymentFilters.FIRSTNAME not in x
-                    and PaymentFilters.NPI not in x
+            matched_df[
+                matched_df["filters"].apply(
+                    lambda x: PaymentFilters.FIRSTNAME not in x and PaymentFilters.NPI not in x
                 )
-            )].to_excel(writer, sheet_name="without_firstname", index=False)
+            ].to_excel(writer, sheet_name="without_firstname", index=False)
             write_unmatched_options_to_excel(
                 unmatched_options=unmatched_options,
                 writer=writer,
@@ -225,11 +232,13 @@ def update_unmatched_options(
     """Updates the unmatched options DataFrame with the new unmatched options
     and removes any options that are already in the matched DataFrame."""
 
-    existing_options = existing_options[
-        ~existing_options["provider_pk"].isin(matched_df["provider_pk"])
-    ] if (
-        not existing_options.empty and not matched_df.empty
-    ) else pd.DataFrame() if existing_options.empty else existing_options
+    existing_options = (
+        existing_options[~existing_options["provider_pk"].isin(matched_df["provider_pk"])]
+        if (not existing_options.empty and not matched_df.empty)
+        else pd.DataFrame()
+        if existing_options.empty
+        else existing_options
+    )
 
     for _, unmatched_option in unmatched_options.iterrows():
         # Compare only on columns present in BOTH the persisted existing
@@ -241,18 +250,12 @@ def update_unmatched_options(
         if existing_options.empty:
             already_present = False
         else:
-            common = [
-                c for c in existing_options.columns
-                if c in unmatched_option.index
-            ]
+            common = [c for c in existing_options.columns if c in unmatched_option.index]
             if not common:
                 already_present = False
             else:
                 already_present = (
-                    existing_options[common]
-                    .eq(unmatched_option[common])
-                    .all(axis=1)
-                    .any()
+                    existing_options[common].eq(unmatched_option[common]).all(axis=1).any()
                 )
         if not already_present:
             existing_options = pd.concat(
@@ -274,8 +277,10 @@ def update_or_insert_provider(
 
     # Check if the provider already exists in the DataFrame
     existing_index = (
-        df.index[df["provider_pk"] == provider_row["provider_pk"]]
-    ) if not df.empty else pd.Series()
+        (df.index[df["provider_pk"] == provider_row["provider_pk"]])
+        if not df.empty
+        else pd.Series()
+    )
 
     if not existing_index.empty:
         # Update the existing row

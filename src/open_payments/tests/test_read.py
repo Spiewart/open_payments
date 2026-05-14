@@ -2,6 +2,8 @@ import os
 import tempfile
 import unittest
 
+import pytest
+
 from ..read import ReadPayments
 
 
@@ -21,7 +23,9 @@ class TestGetPaymentCsvPath(unittest.TestCase):
             open(os.path.join(year_dir, fname), "w").close()
 
             reader = ReadPayments(
-                years=[2018], payment_classes=["general"], payments_folder=tmp,
+                years=[2018],
+                payment_classes=["general"],
+                payments_folder=tmp,
             )
             self.assertEqual(
                 reader.get_payment_csv_path("general", 2018),
@@ -46,7 +50,9 @@ class TestGetPaymentCsvPath(unittest.TestCase):
             os.utime(newer_path, (new_ts, new_ts))
 
             reader = ReadPayments(
-                years=[2020], payment_classes=["general"], payments_folder=tmp,
+                years=[2020],
+                payment_classes=["general"],
+                payments_folder=tmp,
             )
             self.assertEqual(
                 reader.get_payment_csv_path("general", 2020),
@@ -58,14 +64,19 @@ class TestGetPaymentCsvPath(unittest.TestCase):
             year_dir = os.path.join(tmp, "2030")
             os.makedirs(year_dir)
             reader = ReadPayments(
-                years=[2030], payment_classes=["general"], payments_folder=tmp,
+                years=[2030],
+                payment_classes=["general"],
+                payments_folder=tmp,
             )
             with self.assertRaises(FileNotFoundError):
                 reader.get_payment_csv_path("general", 2030)
 
 
 class TestReadPayments(unittest.TestCase):
+    @pytest.mark.integration
     def test__read_ownership_payment_csvs(self):
+        # read_*_payments_csvs returns RAW CMS column names; the rename to
+        # canonical names (profile_id, etc.) happens later in update_payments.
         reader = ReadPayments(
             years=2023,
             payment_classes=["ownership"],
@@ -74,8 +85,9 @@ class TestReadPayments(unittest.TestCase):
 
         ownership_payments = reader.read_ownership_payments_csvs()
 
-        self.assertIn("Physician_Primary_Type", ownership_payments.columns)
+        self.assertIn("Physician_Profile_ID", ownership_payments.columns)
 
+    @pytest.mark.integration
     def test__read_general_payment_csvs(self):
         reader = ReadPayments(
             years=2023,
@@ -85,4 +97,4 @@ class TestReadPayments(unittest.TestCase):
 
         general_payments = reader.read_general_payments_csvs()
 
-        self.assertIn("Covered_Recipient_Primary_Type_1", general_payments.columns)
+        self.assertIn("Covered_Recipient_Profile_ID", general_payments.columns)

@@ -1,9 +1,9 @@
-from typing import Union, Type
-
 import logging
+from typing import Union
+
 import pandas as pd
 
-from .helpers import get_file_suffix, open_payments_directory
+from .helpers import get_file_suffix
 from .read import ReadPayments
 
 # Configure logging
@@ -11,46 +11,42 @@ logging.basicConfig(level=logging.INFO)
 
 
 class PaymentTypes(ReadPayments):
-
-    def __init__(
-        self,
-        **kwargs
-    ):
-        super().__init__(
-            **kwargs
-        )
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     @property
-    def general_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
+    def general_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
 
         cols = super().general_columns
-        cols.update({
-            "Form_of_Payment_or_Transfer_of_Value": ("form", str),
-            "Nature_of_Payment_or_Transfer_of_Value": ("nature", str),
-        })
+        cols.update(
+            {
+                "Form_of_Payment_or_Transfer_of_Value": ("form", str),
+                "Nature_of_Payment_or_Transfer_of_Value": ("nature", str),
+            }
+        )
         return cols
 
     @property
-    def ownership_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
+    def ownership_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
 
         cols = super().ownership_columns
-        cols.update({
+        cols.update(
+            {
                 "Terms_of_Interest": ("payment_type", str),
-        })
+            }
+        )
         return cols
 
     @property
-    def research_columns(self) -> dict[str, tuple[str, Union[Type[str], str]]]:
+    def research_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
 
         cols = super().research_columns
 
-        cols.update(
-            self.general_columns
-        )
+        cols.update(self.general_columns)
         return cols
 
     def create_payment_types_excel(self) -> None:
-        data_directory = open_payments_directory()
+        data_directory = str(self.settings.data_dir)
 
         df = self.payment_types()
 
@@ -84,9 +80,13 @@ class PaymentTypes(ReadPayments):
                 payment_class="general",
             )
 
-        unique_nature_of_payments = self.general_payments["Nature_of_Payment_or_Transfer_of_Value"].unique()
+        unique_nature_of_payments = self.general_payments[
+            "Nature_of_Payment_or_Transfer_of_Value"
+        ].unique()
 
-        unique_nature_of_payments = pd.DataFrame(unique_nature_of_payments, columns=["Nature_of_Payment_or_Transfer_of_Value"])
+        unique_nature_of_payments = pd.DataFrame(
+            unique_nature_of_payments, columns=["Nature_of_Payment_or_Transfer_of_Value"]
+        )
 
         unique_nature_of_payments.rename(
             columns={"Nature_of_Payment_or_Transfer_of_Value": "payment_type"},
@@ -107,7 +107,9 @@ class PaymentTypes(ReadPayments):
 
         unique_terms_of_interest = self.ownership_payments["Terms_of_Interest"].unique()
 
-        unique_terms_of_interest = pd.DataFrame(unique_terms_of_interest, columns=["Terms_of_Interest"])
+        unique_terms_of_interest = pd.DataFrame(
+            unique_terms_of_interest, columns=["Terms_of_Interest"]
+        )
 
         unique_terms_of_interest.rename(
             columns={"Terms_of_Interest": "payment_type"},
@@ -126,9 +128,13 @@ class PaymentTypes(ReadPayments):
                 payment_class="research",
             )
 
-        unique_forms_of_payment = self.research_payments["Form_of_Payment_or_Transfer_of_Value"].unique()
+        unique_forms_of_payment = self.research_payments[
+            "Form_of_Payment_or_Transfer_of_Value"
+        ].unique()
 
-        unique_forms_of_payment = pd.DataFrame(unique_forms_of_payment, columns=["Form_of_Payment_or_Transfer_of_Value"])
+        unique_forms_of_payment = pd.DataFrame(
+            unique_forms_of_payment, columns=["Form_of_Payment_or_Transfer_of_Value"]
+        )
 
         unique_forms_of_payment.rename(
             columns={"Form_of_Payment_or_Transfer_of_Value": "payment_type"},

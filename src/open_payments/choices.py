@@ -2,7 +2,14 @@ from enum import StrEnum
 
 
 class Credentials(StrEnum):
-    """Enum class for credentials."""
+    """Provider credentials recognized by the matcher.
+
+    The first 12 values mirror CMS Open Payments `Covered_Recipient_Primary_Type`
+    taxonomy. `REGISTERED_NURSE` is added so child apps can faithfully record
+    RN-credentialed providers in their conflicted input even though CMS does
+    not currently report RN as a primary type — RN-only providers will simply
+    fail to match any payment row (the correct outcome).
+    """
 
     MEDICAL_DOCTOR = "Medical Doctor"
     DOCTOR_OF_DENTISTRY = "Doctor of Dentistry"
@@ -16,6 +23,7 @@ class Credentials(StrEnum):
     CLINICAL_NURSE_SPECIALIST = "Clinical Nurse Specialist"
     CERTIFIED_NURSE_MIDWIFE = "Certified Nurse-Midwife"
     ANESTHESIOLOGIST_ASSISTANT = "Anesthesiologist Assistant"
+    REGISTERED_NURSE = "Registered Nurse"
 
 
 class PaymentFilters(StrEnum):
@@ -35,11 +43,28 @@ class PaymentFilters(StrEnum):
     CITY = "CITY"
     STATE = "STATE"
     CITYSTATE = "CITYSTATE"  # Matches city and state
+    # Identifier filter. Application is the same as the others (accumulate
+    # the label in `filters` when the NPI matches); the SELECTION-layer
+    # interpretation that "NPI in filters → unique match" is a study-
+    # specific concern handled by a MatchSelector strategy, not here.
+    NPI = "NPI"
+    # Name-suffix filter. HIT-ONLY signal: only fires when both sides have a
+    # whitelisted suffix value (JR/SR/II/III/IV/V) and they match strictly
+    # post-normalization. CMS empirically populates this column on only
+    # ~1% of rows with significant data quality issues (credential leaks
+    # like "MD"/"DDS" appearing as suffix); the whitelist prevents false
+    # matches between two such credential-leaks agreeing.
+    NAME_SUFFIX = "NAME_SUFFIX"
 
 
 class States(StrEnum):
-    """StrEnum class for the different states in the United States.
-    Member name is the state's abbreviation, value is the full name."""
+    """USPS state / territory codes recognized by the matcher.
+
+    Includes the 50 states + DC, plus the 8 US territory / military codes that
+    CMS Open Payments actually emits in `Recipient_State` columns (AE/AP for
+    Armed Forces Europe/Pacific, FM/GU/MP/PR/PW/VI for territories).
+    Member name is the USPS abbreviation, value is the full name.
+    """
 
     AL = "Alabama"
     AK = "Alaska"
@@ -92,6 +117,15 @@ class States(StrEnum):
     WV = "West Virginia"
     WI = "Wisconsin"
     WY = "Wyoming"
+    # Territories + military post codes that CMS Open Payments emits.
+    AE = "Armed Forces Europe"
+    AP = "Armed Forces Pacific"
+    FM = "Federated States of Micronesia"
+    GU = "Guam"
+    MP = "Northern Mariana Islands"
+    PR = "Puerto Rico"
+    PW = "Palau"
+    VI = "U.S. Virgin Islands"
 
 
 class Unmatcheds(StrEnum):
@@ -100,3 +134,29 @@ class Unmatcheds(StrEnum):
 
     NOLASTNAME = "NOLASTNAME"  # No matches for the last name in OpenPayments
     UNFILTERABLE = "UNFILTERABLE"  # Multiple OpenPayments IDs that can't be matched
+
+
+class FilterOutcome(StrEnum):
+    """Tri-state result of applying a single filter to one payments-x-conflicted row
+    (Section 5.8).
+
+    The legacy bool return type conflated three distinct cases:
+
+    - ``MATCH``: both sides have data for this dimension AND they agree.
+      Accumulates the filter into the row's ``filters`` list.
+    - ``DISAGREE``: both sides have data AND they conflict (e.g. conflicted
+      middle = "Marie", payment middle = "Anne"). Accumulates into the
+      ``negative_filters`` list — strong evidence this is NOT the same provider.
+    - ``NO_DATA``: at least one side lacks data for this dimension (or a
+      stronger same-domain filter already fired). No signal of any kind;
+      neither list accumulates.
+
+    Selectors can read both ``filters`` and ``negative_filters`` columns to
+    distinguish "missing information" from "active disagreement" when ranking
+    candidates. The default cascade ignores ``negative_filters`` to preserve
+    legacy behavior; tier-based selectors use them as confidence demoters.
+    """
+
+    MATCH = "MATCH"
+    DISAGREE = "DISAGREE"
+    NO_DATA = "NO_DATA"

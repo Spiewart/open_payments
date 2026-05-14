@@ -1,24 +1,68 @@
 import unittest
-import pandas as pd
 
-from ..credentials import convert_credentials, Credentials, PaymentCredentials
+import pandas as pd
+import pytest
+
+from ..credentials import Credentials, PaymentCredentials, convert_credentials
 
 
 class TestPaymentCredentials(unittest.TestCase):
     def setUp(self):
         self.fake_payments = pd.DataFrame(
             {
-                "credential_1": ["Medical Doctor", None, "Medical Doctor", "Medical Doctor", "Doctor of Osteopathy", "Chiropractor"],
-                "credential_2": [None, "Doctor of Osteopathy", "Doctor of Osteopathy", "Certified Registered Nurse Anesthetist", "Doctor of Osteopathy", None],
-                "credential_3": ["Medical Doctor", "Nurse Practitioner", "Medical Doctor", None, "Doctor of Osteopathy", None],
-                "credential_4": ["Medical Doctor", "Doctor of Osteopathy", None, "Medical Doctor", "Physician Assistant", None],
-                "credential_5": ["Medical Doctor", "Doctor of Osteopathy", "Medical Doctor", "Nurse Practitioner", None, None],
+                "credential_1": [
+                    "Medical Doctor",
+                    None,
+                    "Medical Doctor",
+                    "Medical Doctor",
+                    "Doctor of Osteopathy",
+                    "Chiropractor",
+                ],
+                "credential_2": [
+                    None,
+                    "Doctor of Osteopathy",
+                    "Doctor of Osteopathy",
+                    "Certified Registered Nurse Anesthetist",
+                    "Doctor of Osteopathy",
+                    None,
+                ],
+                "credential_3": [
+                    "Medical Doctor",
+                    "Nurse Practitioner",
+                    "Medical Doctor",
+                    None,
+                    "Doctor of Osteopathy",
+                    None,
+                ],
+                "credential_4": [
+                    "Medical Doctor",
+                    "Doctor of Osteopathy",
+                    None,
+                    "Medical Doctor",
+                    "Physician Assistant",
+                    None,
+                ],
+                "credential_5": [
+                    "Medical Doctor",
+                    "Doctor of Osteopathy",
+                    "Medical Doctor",
+                    "Nurse Practitioner",
+                    None,
+                    None,
+                ],
                 "credential_6": [None, None, None, None, None, None],
             }
         )
 
+    @pytest.mark.integration
     def test__unique_credentials(self):
-        unique_credentials = PaymentCredentials(nrows=10000).unique_credentials().values.tolist()
+        # PaymentCredentials.unique_credentials() now resolves (Section 5
+        # bug 0b fixed) — but the assertions still require a real CMS dataset.
+        # MD_DO_only=False so all 12 CMS-reported credential types surface;
+        # the default (True) would limit results to MEDICAL_DOCTOR + DOCTOR_OF_OSTEOPATHY.
+        unique_credentials = (
+            PaymentCredentials(nrows=10000, MD_DO_only=False).unique_credentials().values.tolist()
+        )
 
         self.assertEqual(len(unique_credentials), 12)
         self.assertIn("Medical Doctor", unique_credentials)
@@ -78,9 +122,7 @@ class TestPaymentCredentials(unittest.TestCase):
 
 class TestConvertCredentials(unittest.TestCase):
     def test__with_str(self):
-        converted = convert_credentials(
-            "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]"
-        )
+        converted = convert_credentials("[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]")
         self.assertIsInstance(converted, list)
         self.assertTrue(converted)
         self.assertEqual(len(converted), 1)
@@ -88,10 +130,8 @@ class TestConvertCredentials(unittest.TestCase):
 
     def test__with_multiple_strs(self):
         converted = convert_credentials(
-            (
-                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, "
-                "<Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]"
-            )
+            "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, "
+            "<Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]"
         )
         self.assertIsInstance(converted, list)
         self.assertTrue(converted)
@@ -101,10 +141,12 @@ class TestConvertCredentials(unittest.TestCase):
 
     def test__applied_to_df(self):
         df = pd.DataFrame(
-            {"credentials": [
-                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]",
-                "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, <Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]",
-            ]}
+            {
+                "credentials": [
+                    "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>]",
+                    "[<Credentials.MEDICAL_DOCTOR: 'Medical Doctor'>, <Credentials.DOCTOR_OF_OSTEOPATHY: 'Doctor of Osteopathy'>]",
+                ]
+            }
         )
 
         df["credentials"] = df["credentials"].apply(convert_credentials)

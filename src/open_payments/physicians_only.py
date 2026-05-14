@@ -1,8 +1,8 @@
 import logging
+
 import pandas as pd
 
 from .choices import Credentials
-
 
 logging.basicConfig(level=logging.INFO)
 
@@ -55,31 +55,27 @@ class PhysicianFilter:
         logging.info(
             "Filtering payments for MDs and DOs based on specialty and credential columns..."
         )
-        
-        return self.payments[
-            self.physician_specialty() | self.physician_credential()
-        ]
+
+        return self.payments[self.physician_specialty() | self.physician_credential()]
 
     def physician_specialty(self) -> pd.Series:
         """Returns True for rows that have a specialty of
         'Allopathic & Osteopathic Physicians'."""
 
         return self.payments[self.get_specialty_filter_columns()].apply(
-            lambda specialty_columns: specialty_columns.astype(str)
-            .str.contains(
-                "Allopathic & Osteopathic Physicians",
-                case=False,
-                na=False
-            ).any(),
-            axis=1
+            lambda specialty_columns: (
+                specialty_columns.astype(str)
+                .str.contains("Allopathic & Osteopathic Physicians", case=False, na=False)
+                .any()
+            ),
+            axis=1,
         )
 
     def get_specialty_filter_columns(self):
         """Returns MD/DO-specialty columns that are in the DF."""
 
         return [
-            column for column in self.potential_specialty_columns
-            if column in self.payments.columns
+            column for column in self.potential_specialty_columns if column in self.payments.columns
         ]
 
     def physician_credential(self) -> pd.Series:
@@ -87,18 +83,21 @@ class PhysicianFilter:
 
         return self.payments[self.get_credential_filter_columns()].apply(
             lambda credential_columns: any(
-                credential in [
+                credential
+                in [
                     Credentials.MEDICAL_DOCTOR,
                     Credentials.DOCTOR_OF_OSTEOPATHY,
-                ] for credential in credential_columns
+                ]
+                for credential in credential_columns
             ),
-            axis=1
+            axis=1,
         )
 
     def get_credential_filter_columns(self):
         """Returns MD/DO-credential columns that are in the DF."""
 
         return [
-            column for column in self.potential_credential_columns
+            column
+            for column in self.potential_credential_columns
             if column in self.payments.columns
         ]

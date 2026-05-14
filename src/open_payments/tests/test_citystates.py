@@ -1,83 +1,93 @@
 import unittest
 
 import pandas as pd
+import pytest
 
-from ..citystates import (CityState, PaymentCityStates,
-                          PaymentIDsCityStatesMixin)
+from ..choices import PaymentFilters
+from ..citystates import CityState, PaymentCityStates, PaymentIDsCityStatesMixin
 
 
+@pytest.mark.integration
 class TestPaymentCityStates(unittest.TestCase):
+    # Section 5 bug 0b fix restored read_*_payments_csvs methods so setUp no
+    # longer crashes. Tests still depend on real CMS data on disk (the class
+    # reads from PaymentCityStates() with default Settings); class-level
+    # integration marker keeps them out of CI but available for local runs.
     def setUp(self):
         self.reader = PaymentCityStates()
         self.general_payments = self.reader.read_general_payments_csvs()
         self.ownership_payments = self.reader.read_ownership_payments_csvs()
-        self.fake_states_general = pd.DataFrame({
-            "Recipient_City": [
-                "New York",
-                "Minneapolis",
-                "Cheyenne",
-                None,
-                "Billings",
-            ],
-            "Recipient_State": [
-                "NY",
-                "MN",
-                "WY",
-                "WY",
-                None,
-            ],
-            "Covered_Recipient_License_State_code1": [
-                "NY",
-                None,
-                "NY",
-                "AL",
-                "MT",
-            ],
-            "Covered_Recipient_License_State_code2": [
-                "NY",
-                None,
-                "NY",
-                "CA",
-                "ND",
-            ],
-            "Covered_Recipient_License_State_code3": [
-                "NY",
-                "FL",
-                "NY",
-                "NV",
-                "SD",
-            ],
-            "Covered_Recipient_License_State_code4": [
-                "NY",
-                None,
-                "NY",
-                "AZ",
-                None,
-            ],
-            "Covered_Recipient_License_State_code5": [
-                "NY",
-                None,
-                "NY",
-                "WI",
-                None,
-            ],
-        })
-        self.fake_states_ownership = pd.DataFrame({
-            "Recipient_City": [
-                "New York",
-                "Minneapolis",
-                "Cheyenne",
-                None,
-                "Billings",
-            ],
-            "Recipient_State": [
-                "NY",
-                "MN",
-                "WY",
-                "WY",
-                None,
-            ],
-        })
+        self.fake_states_general = pd.DataFrame(
+            {
+                "Recipient_City": [
+                    "New York",
+                    "Minneapolis",
+                    "Cheyenne",
+                    None,
+                    "Billings",
+                ],
+                "Recipient_State": [
+                    "NY",
+                    "MN",
+                    "WY",
+                    "WY",
+                    None,
+                ],
+                "Covered_Recipient_License_State_code1": [
+                    "NY",
+                    None,
+                    "NY",
+                    "AL",
+                    "MT",
+                ],
+                "Covered_Recipient_License_State_code2": [
+                    "NY",
+                    None,
+                    "NY",
+                    "CA",
+                    "ND",
+                ],
+                "Covered_Recipient_License_State_code3": [
+                    "NY",
+                    "FL",
+                    "NY",
+                    "NV",
+                    "SD",
+                ],
+                "Covered_Recipient_License_State_code4": [
+                    "NY",
+                    None,
+                    "NY",
+                    "AZ",
+                    None,
+                ],
+                "Covered_Recipient_License_State_code5": [
+                    "NY",
+                    None,
+                    "NY",
+                    "WI",
+                    None,
+                ],
+            }
+        )
+        self.fake_states_ownership = pd.DataFrame(
+            {
+                "Recipient_City": [
+                    "New York",
+                    "Minneapolis",
+                    "Cheyenne",
+                    None,
+                    "Billings",
+                ],
+                "Recipient_State": [
+                    "NY",
+                    "MN",
+                    "WY",
+                    "WY",
+                    None,
+                ],
+            }
+        )
         self.fake_reader = PaymentCityStates(
             general_payments=self.fake_states_general,
             ownership_payments=self.fake_states_ownership,
@@ -187,7 +197,6 @@ class TestPaymentCityStates(unittest.TestCase):
 
 
 class TestCityState(unittest.TestCase):
-
     def test__state_is_abbrev(self):
         citystate = CityState(city="New York", state="NY")
         self.assertTrue(citystate.state_is_abbrev(citystate.state))
@@ -236,33 +245,46 @@ class TestCityState(unittest.TestCase):
 
 class TestPaymentIDsCityStatesMixin(unittest.TestCase):
     def test__filter_by_citystate(self):
-        payments_x_conflicteds = pd.DataFrame({
-            "citystates": [
-                [
-                    CityState(city="New York", state="NY"),
-                    CityState(city="Minneapolis", state="MN"),
-                    CityState(city="Cheyenne", state="WY"),
+        # filter_by_citystate mutates the row's `filters` list when it matches
+        # (removes CITY/STATE entries that the CITYSTATE filter supersedes).
+        # The list must therefore be present and mutable in the test row.
+        payments_x_conflicteds = pd.DataFrame(
+            {
+                "citystates": [
+                    [
+                        CityState(city="New York", state="NY"),
+                        CityState(city="Minneapolis", state="MN"),
+                        CityState(city="Cheyenne", state="WY"),
+                    ],
                 ],
-            ],
-            "conflict_citystates": [
-                [
-                    CityState(city="New York", state="NY"),
-                    CityState(city=None, state="WY"),
-                    CityState(city="Billings", state=None),
+                "conflict_citystates": [
+                    [
+                        CityState(city="New York", state="NY"),
+                        CityState(city=None, state="WY"),
+                        CityState(city="Billings", state=None),
+                    ],
                 ],
-            ],
-        })
+                "filters": [[PaymentFilters.CITY, PaymentFilters.STATE]],
+            }
+        )
 
-        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(
+            payments_x_conflicteds.iloc[0]
+        )
         self.assertTrue(citystate_match)
 
-        payments_x_conflicteds = pd.DataFrame({
-            "citystates": [
-                [CityState(city='Birmingham', state='AL')],
-            ],
-            "conflict_citystates": [
-                [CityState(city='Birmingham', state='Alabama')],
-            ]
-        })
-        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(payments_x_conflicteds.iloc[0])
+        payments_x_conflicteds = pd.DataFrame(
+            {
+                "citystates": [
+                    [CityState(city="Birmingham", state="AL")],
+                ],
+                "conflict_citystates": [
+                    [CityState(city="Birmingham", state="Alabama")],
+                ],
+                "filters": [[PaymentFilters.CITY, PaymentFilters.STATE]],
+            }
+        )
+        citystate_match = PaymentIDsCityStatesMixin.filter_by_citystate(
+            payments_x_conflicteds.iloc[0]
+        )
         self.assertTrue(citystate_match)

@@ -3,16 +3,17 @@ import pandas as pd
 from .citystates import ConflictCityStates
 from .credentials import ConflictCredentials
 from .names import ConflictNames
+from .npi import ConflictNPI
 from .specialtys import ConflictSpecialtys
 
 
 class Conflicteds(
+    ConflictNPI,
     ConflictCredentials,
     ConflictSpecialtys,
     ConflictCityStates,
     ConflictNames,
 ):
-
     def us_conflicteds_id_search_df(self) -> pd.DataFrame:
         self.conflicts = self.remove_non_us()
 
@@ -23,6 +24,11 @@ class Conflicteds(
     def conflicteds_id_search_df(self) -> pd.DataFrame:
         """Method that takes the conflicteds DataFrame and modifies it to be
         used for searching the OpenPayments payment data for a unique ID."""
+
+        # NPI has no dependencies on other columns and is the canonical
+        # provider identifier, so parse it first. Tolerates child apps
+        # without an NPI column (adds an all-NA `npi` column for them).
+        self.conflicts = self.conflict_npi()
 
         self.conflicts = self.conflict_credentials()
 
@@ -59,12 +65,20 @@ class Conflicteds(
         self.conflicts = self.conflict_specialtys()
 
         self.conflicts = self.conflicts.drop(
-            columns=["article", "rank", "entity", ]
+            columns=[
+                "article",
+                "rank",
+                "entity",
+            ]
         )
 
         self.conflicts.insert(0, "provider_pk", value=range(len(self.conflicts)))
 
-        self.conflicts.set_index("provider_pk")
+        # Bug 1 fix: previously called set_index("provider_pk") and discarded
+        # the result. Downstream code (`search_for_conflicteds_ids` rename
+        # loop, filter_by_* methods, add_unique_id) consumes `provider_pk` as
+        # a column, not an index, so the set_index call was both wrong AND
+        # silently a no-op. Removed.
 
         return self.conflicts
 
@@ -81,9 +95,7 @@ class Conflicteds(
         """Removes conflicteds who don't have credentials."""
 
         self.conflicts = self.conflicts[
-            self.conflicts["credentials"].apply(
-                lambda x: x is not None
-            )
+            self.conflicts["credentials"].apply(lambda x: x is not None)
         ]
 
         return self.conflicts

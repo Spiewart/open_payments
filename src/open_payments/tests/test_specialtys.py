@@ -1,40 +1,34 @@
 import unittest
+
 import pandas as pd
 
-from ..ids import PaymentIDs
 from ..specialtys import PaymentSpecialtys, Specialtys
 
 
 class TestPaymentSpecialtys(unittest.TestCase):
     def setUp(self):
-        self.fake_payments = pd.DataFrame({
-            "specialty_1": [
-                "MD|Nephrology|Transplant",
-                "MD|Nephrology",
-                "MD|Infectious Diseases",
-                "MD|Hematology & Oncology|Bone Marrow Transplant",
-                "DO|Infectious Diseases",
-            ],
-            "specialty_2": [
-                None, None, None, None, None
-            ],
-            "specialty_3": [
-                "NP|Family Practice",
-                "MD|Family Practice",
-                "MD|Family Practice",
-                "MD|Orthopedic Surgery",
-                None,
-            ],
-            "specialty_4": [
-                None, None, "MD|Ear Nose & Throat", None, None
-            ],
-            "specialty_5": [
-                None, None, None, None, None
-            ],
-            "specialty_6": [
-                None, None, None, None, None
-            ],
-        })
+        self.fake_payments = pd.DataFrame(
+            {
+                "specialty_1": [
+                    "MD|Nephrology|Transplant",
+                    "MD|Nephrology",
+                    "MD|Infectious Diseases",
+                    "MD|Hematology & Oncology|Bone Marrow Transplant",
+                    "DO|Infectious Diseases",
+                ],
+                "specialty_2": [None, None, None, None, None],
+                "specialty_3": [
+                    "NP|Family Practice",
+                    "MD|Family Practice",
+                    "MD|Family Practice",
+                    "MD|Orthopedic Surgery",
+                    None,
+                ],
+                "specialty_4": [None, None, "MD|Ear Nose & Throat", None, None],
+                "specialty_5": [None, None, None, None, None],
+                "specialty_6": [None, None, None, None, None],
+            }
+        )
 
     def test__specialtys(self):
 

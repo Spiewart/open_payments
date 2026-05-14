@@ -23,19 +23,53 @@ dependencies = [
     "numpy==2.0.2",
     "pandas==2.2.3",
     "openpyxl==3.1.5",
-    "pylint",
-    "pytest==8.3.4",
-    "build==1.2.2",
-    "flake8",
-    "black==24.10.0",
     "pydantic==2.10.6",
+    "pydantic-settings>=2.6,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "build==1.2.2",
 ]
 
 [project.urls]
 
 [project.scripts]
-unique_credentials = "open_payments.management:unique_credentials"  # Gets all unique credentials from OpenPayments
-MD_DO_2023_general_payments = "open_payments.management:MD_DO_2023_general_payments"  # Gets all MD/DO 2023 general payments
-search_general_csvs = "open_payments.management:create_search_general_MD_DO_payments_csvs"  # Creates the search CSVs for OpenPayments general payments
-unique_specialties = "open_payments.management:unique_specialties"  # Gets all unique specialties from OpenPayments
-payment_types = "open_payments.management:create_payment_types_excel"  # Gets all payment types from OpenPayments
+unique_credentials = "open_payments.credentials:unique_credentials"
+unique_specialties = "open_payments.specialtys:unique_specialties"
+search_general_csvs = "open_payments.management:create_search_general_MD_DO_payments_csvs"
+payment_types = "open_payments.management:create_payment_types_excel"
+
+[tool.pytest.ini_options]
+testpaths = ["src/open_payments/tests"]
+markers = [
+    "integration: tests that require real CMS data on disk (skipped in CI by default)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+# Conservative starter set: pyflakes (F), pycodestyle errors (E), isort (I),
+# pyupgrade (UP), flake8-bugbear (B). Format-related rules deliberately omitted
+# so `ruff check` doesn't fight `ruff format`.
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # line length — handled by formatter
+    "B008",  # function calls in default args (pandas/pydantic use this)
+    "UP007", # Optional[X] / Union[X, Y] are still common in this codebase
+    "UP045",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/open_payments/tests/**" = ["B011"]  # assert False is fine in tests
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
