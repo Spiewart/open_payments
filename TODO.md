@@ -221,18 +221,54 @@ All resolved in the Section 5 bug-fix batch:
 
 ---
 
-## Sections 6–8 (later)
+## Section 7 — Public API + typed input/output — DONE
+
+Single high-level entrypoint plus a `SearchResult` output bundle so child
+apps can depend on a stable surface:
+
+- [src/open_payments/api.py](src/open_payments/api.py) —
+  ``find_payments_for_conflicted_providers(conflicteds, settings, selector,
+  payments, parse_conflicteds) -> SearchResult``. Auto-detects whether the
+  input is raw (needs ``Conflicteds`` parsing) or pre-parsed (already
+  matches ``REQUIRED_CONFLICTED_COLUMNS``); ``parse_conflicteds=`` forces
+  either. Settings-aware payment loading.
+- [src/open_payments/schemas.py](src/open_payments/schemas.py) —
+  ``SearchResult`` (frozen dataclass holding the three result frames plus
+  ``to_excel`` / ``update_excel`` / ``from_excel`` methods, replacing the
+  free functions in helpers.py). ``ConflictedProviderRow`` pydantic model
+  documents the per-row input contract; ``validate_conflicteds_df`` is the
+  cheap runtime gate.
+- [src/open_payments/__init__.py](src/open_payments/__init__.py) — exports
+  the documented public surface: ``find_payments_for_conflicted_providers``,
+  ``Settings``, ``SearchResult``, ``ConflictedProviderRow``,
+  ``validate_conflicteds_df``, the four selector classes,
+  ``SelectorResult``, and the three enums (``PaymentFilters``,
+  ``FilterOutcome``, ``Unmatcheds``).
+
+xlsx merge dedup switched to a ``(provider_pk, profile_id)`` key (instead
+of full-row equality), because list-valued columns get stringified on
+xlsx round-trip and the resulting dtype asymmetry crashed pandas's
+``.eq()`` broadcast. Key-based dedup also captures the actual identity
+of an unmatched option (different filter sets for the same option are
+still the same option).
+
+16 new tests in [test_api.py](src/open_payments/tests/test_api.py). 490
+total passing; ruff clean.
+
+The older ``helpers.update_or_create_conflicteds_ids`` / etc. free
+functions remain in [helpers.py](src/open_payments/helpers.py) for
+backwards compatibility with anything that imports them directly, but
+new code should use the SearchResult methods.
+
+---
+
+## Sections 6 and 8 (later)
 
 - **Section 6 — Vectorize the matcher.** Replace `.iterrows()` at
   `ids.py:240` and `.apply(lambda)` at `ids.py:288` with a join-based flow.
   Single merge on last_name; per-filter vectorized predicate; group-by
   `provider_pk` for the narrowing. Keep the old class as
   `LegacyConflictedPaymentIDs` for one release.
-- **Section 7 — Public API + typed input/output contract.** `schemas.py`
-  with pydantic `ConflictedProviderInput` + `SearchResult` (replacing the
-  loose-DataFrame contracts). Single high-level
-  `find_payments_for_conflicted_providers(conflicteds, settings) -> SearchResult`
-  in `__init__.py`.
 - **Section 8 — Documentation & contribution hardening.** README example
   for child-app wrapping; `docs/architecture.md`; `CONTRIBUTING.md`;
   `py.typed` marker.
