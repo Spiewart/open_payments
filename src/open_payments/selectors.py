@@ -26,10 +26,15 @@ Selection rules vary by study:
 
 - **Tier-based confidence** (`TieredConfidenceSelector`): assign each
   candidate a confidence tier (HIGH_NPI / MEDIUM_HIGH / ... / VERY_LOW_BARE)
-  using rules that read both `filters` AND `negative_filters` — the latter
-  lets the tier rules distinguish "firstname absent" from "firstname
-  actively disagrees" (a Section 5.8 capability). The selector picks the
-  row(s) at the highest tier and delegates ties to a fallback selector.
+  via positive-signal-only rules ported verbatim from deans's
+  `match_confidence.py`. Negative-signal information (Section 5.8) is
+  preserved on a parallel ``negative_filters`` / ``n_negative_filters``
+  output column rather than collapsed into the tier — that way the
+  analyst can re-stratify confident matches by negative-signal count at
+  review time. The selector also uses ``n_negative_filters`` as a
+  selection-time tiebreaker within the best tier: a `MEDIUM_HIGH_NAME_PLUS`
+  row with `MIDDLE_INITIAL` in negative_filters loses to the same-tier
+  clean alternative (real-world deans false-positive pattern).
 
 USAGE
 -----
@@ -120,6 +125,8 @@ class SelectorResult:
     unmatched_options: pd.DataFrame | None = None
     unmatched_reason: Unmatcheds | None = None
     representative_filters: list[PaymentFilters] = field(default_factory=list)
+    representative_negative_filters: list[PaymentFilters] = field(default_factory=list)
+    confidence_tier: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "unique":
@@ -142,15 +149,29 @@ class SelectorResult:
             raise ValueError(f"Unknown SelectorResult kind: {self.kind!r}")
 
     @classmethod
-    def unique(cls, match: pd.DataFrame) -> SelectorResult:
-        """Convenience constructor for a unique match. ``representative_filters``
-        is auto-populated from the winning row's `filters` column."""
+    def unique(
+        cls,
+        match: pd.DataFrame,
+        confidence_tier: str | None = None,
+    ) -> SelectorResult:
+        """Convenience constructor for a unique match.
+
+        ``representative_filters`` and ``representative_negative_filters`` are
+        auto-populated from the winning row's columns. ``confidence_tier`` is
+        passed through unchanged — selectors that compute a tier (e.g.
+        :class:`TieredConfidenceSelector`) can populate it; selectors that
+        don't (cascade selectors) leave it as None.
+        """
         if len(match) != 1:
             raise ValueError(f"unique() requires a 1-row DataFrame; got {len(match)}")
+        winning = match.iloc[0]
+        neg = winning.get("negative_filters", None)
         return cls(
             kind="unique",
             match=match,
-            representative_filters=list(match.iloc[0]["filters"]),
+            representative_filters=list(winning["filters"]),
+            representative_negative_filters=list(neg) if neg is not None else [],
+            confidence_tier=confidence_tier,
         )
 
     @classmethod
@@ -159,20 +180,28 @@ class SelectorResult:
         options: pd.DataFrame,
         reason: Unmatcheds = Unmatcheds.UNFILTERABLE,
         representative_filters: list[PaymentFilters] | None = None,
+        representative_negative_filters: list[PaymentFilters] | None = None,
+        confidence_tier: str | None = None,
     ) -> SelectorResult:
         """Convenience constructor for an unmatched-options result.
 
-        ``representative_filters`` defaults to the filters list of the first
-        row in ``options`` (typically the highest-match-count row, matching
-        the legacy behavior).
+        ``representative_filters`` and ``representative_negative_filters``
+        default to the corresponding lists of the first row in ``options``.
+        ``confidence_tier`` is passed through unchanged.
         """
+        first_row = options.iloc[0]
         if representative_filters is None:
-            representative_filters = list(options.iloc[0]["filters"])
+            representative_filters = list(first_row["filters"])
+        if representative_negative_filters is None:
+            neg = first_row.get("negative_filters", None)
+            representative_negative_filters = list(neg) if neg is not None else []
         return cls(
             kind="unmatched_options",
             unmatched_options=options,
             unmatched_reason=reason,
             representative_filters=representative_filters,
+            representative_negative_filters=representative_negative_filters,
+            confidence_tier=confidence_tier,
         )
 
 
@@ -365,10 +394,8 @@ class IdentifierWinsSelector(MatchSelector):
 TIER_HIGH_NPI = "HIGH_NPI"
 TIER_MEDIUM_HIGH_NAME_PLUS = "MEDIUM_HIGH_NAME_PLUS"
 TIER_MEDIUM_NAME_PARTIAL = "MEDIUM_NAME_PARTIAL"
-TIER_LOW_NAME_DISAGREE = "LOW_NAME_DISAGREE"
 TIER_LOW_LASTNAME_PLUS_ONE = "LOW_LASTNAME_PLUS_ONE"
 TIER_LOW_NAME_ONLY = "LOW_NAME_ONLY"
-TIER_VERY_LOW_LASTNAME_DISAGREE = "VERY_LOW_LASTNAME_DISAGREE"
 TIER_VERY_LOW_LASTNAME_BARE = "VERY_LOW_LASTNAME_BARE"
 TIER_VERY_LOW_OTHER = "VERY_LOW_OTHER"
 
@@ -422,13 +449,16 @@ def _is_high_npi(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
 
 def _is_medium_high_name_plus(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     """MEDIUM_HIGH_NAME_PLUS: full name (last + first) + 2+ strong
-    disambiguators AND no active middle-name disagreement.
+    disambiguators. Multiple independent positive signals agree.
 
-    Section 5.8 guard: if a middle-name signal disagrees, this row is
-    demoted — fall through to ``LOW_NAME_DISAGREE`` further down the rules.
+    Negative-signal note: a row that satisfies this predicate **stays at
+    this tier even when negative_filters is non-empty**. The negative
+    signal is preserved alongside on the output frame (as
+    ``negative_filters`` / ``n_negative_filters`` columns) so the
+    analyst can re-stratify confident matches by negative-signal count
+    at review time. The matcher's selection layer uses
+    ``n_negative_filters`` as a tiebreaker within the best tier.
     """
-    if bool(n & ANY_MIDDLENAME):
-        return False
     has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
     n_strong = len(f & STRONG_DISAMBIGUATORS)
     return has_full_name and n_strong >= 2
@@ -436,34 +466,16 @@ def _is_medium_high_name_plus(f: set[PaymentFilters], n: set[PaymentFilters]) ->
 
 def _is_medium_name_partial(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     """MEDIUM_NAME_PARTIAL: full name + 1 strong disambiguator, OR
-    lastname-only + 2+ strong disambiguators. Same Section 5.8 demotion
-    guard as MEDIUM_HIGH — middle-name disagreement falls through to
-    ``LOW_NAME_DISAGREE``."""
-    if bool(n & ANY_MIDDLENAME):
-        return False
+    lastname-only + 2+ strong disambiguators."""
     has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
     n_strong = len(f & STRONG_DISAMBIGUATORS)
     return (has_full_name and n_strong >= 1) or (PaymentFilters.LASTNAME in f and n_strong >= 2)
 
 
-def _is_low_name_disagree(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
-    """LOW_NAME_DISAGREE (Section 5.8 negative-aware): full name matched
-    BUT a middle-name signal actively disagrees. Catches rows that the
-    cleaner MEDIUM_HIGH / MEDIUM_NAME_PARTIAL predicates rejected for having
-    middle-name disagreement."""
-    has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
-    middle_disagrees = bool(n & ANY_MIDDLENAME)
-    return has_full_name and middle_disagrees
-
-
 def _is_lastname_plus_one(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     """LOW_LASTNAME_PLUS_ONE: lastname-only (no firstname matched) + exactly
-    1 strong disambiguator. Section 5.8 guard: if firstname *actively
-    disagrees* (not just absent), this falls through to
-    ``VERY_LOW_LASTNAME_DISAGREE`` — active disagreement is worse than
-    absence."""
-    if PaymentFilters.FIRSTNAME in n:
-        return False
+    1 strong disambiguator. Moderate risk — firstname is absent OR
+    actively disagrees; the disambiguator partially compensates."""
     has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
     if has_full_name:
         return False
@@ -473,30 +485,18 @@ def _is_lastname_plus_one(f: set[PaymentFilters], n: set[PaymentFilters]) -> boo
 
 def _is_name_only(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     """LOW_NAME_ONLY: full name + 0 disambiguators. The "Chris Anderson MD"
-    problem — many providers share common names. Same middle-disagree guard
-    as MEDIUM tiers so a middle-name disagreement gets the ``LOW_NAME_DISAGREE``
-    tier instead."""
-    if bool(n & ANY_MIDDLENAME):
-        return False
+    problem — many providers share common names. Check
+    ``n_negative_filters`` on the output to see whether the match also
+    had any active disagreements."""
     has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
     n_strong = len(f & STRONG_DISAMBIGUATORS)
     return has_full_name and n_strong == 0
 
 
-def _is_lastname_disagree(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
-    """VERY_LOW_LASTNAME_DISAGREE (Section 5.8 negative-aware): lastname
-    matched AND firstname *actively disagrees* (in negative_filters, not
-    just absent). Highest false-positive risk — the matcher landed on a
-    same-lastname record whose first name conflicts with the conflicted's."""
-    return PaymentFilters.LASTNAME in f and PaymentFilters.FIRSTNAME in n
-
-
 def _is_lastname_bare(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     """VERY_LOW_LASTNAME_BARE: lastname only, no firstname, no disambiguators.
-    Firstname was absent on either side (active disagreement is captured by
-    VERY_LOW_LASTNAME_DISAGREE above, which is evaluated first)."""
-    if PaymentFilters.FIRSTNAME in n:
-        return False
+    Highest false-positive risk — same-lastname record with no other
+    positive agreement."""
     has_full_name = PaymentFilters.LASTNAME in f and bool(f & ANY_FIRSTNAME)
     if has_full_name:
         return False
@@ -504,19 +504,19 @@ def _is_lastname_bare(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     return PaymentFilters.LASTNAME in f and n_strong == 0
 
 
-# Rule order matters — earlier predicates win on overlap. Demotion is handled
-# inside each predicate via negative-signal guards (e.g. MEDIUM_HIGH rejects
-# rows with middle disagreement, letting LOW_NAME_DISAGREE further down catch
-# them). This keeps tier rank index = confidence rank (lower = better) while
-# still expressing the Section 5.8 demotion semantics.
+# Default tier rules — positive-signal-only, ported verbatim from deans's
+# ``match_confidence.py``. Negative-signal information is intentionally
+# preserved on a parallel ``negative_filters`` / ``n_negative_filters``
+# output column rather than collapsed into the tier — that way the analyst
+# can see "this MEDIUM_HIGH_NAME_PLUS match also had a MIDDLE_INITIAL
+# disagreement" at review time. The selector uses ``n_negative_filters``
+# as a tiebreaker within the best tier.
 DEFAULT_TIER_RULES: list[TierRule] = [
     (TIER_HIGH_NPI, _is_high_npi),
     (TIER_MEDIUM_HIGH_NAME_PLUS, _is_medium_high_name_plus),
     (TIER_MEDIUM_NAME_PARTIAL, _is_medium_name_partial),
-    (TIER_LOW_NAME_DISAGREE, _is_low_name_disagree),
     (TIER_LOW_LASTNAME_PLUS_ONE, _is_lastname_plus_one),
     (TIER_LOW_NAME_ONLY, _is_name_only),
-    (TIER_VERY_LOW_LASTNAME_DISAGREE, _is_lastname_disagree),
     (TIER_VERY_LOW_LASTNAME_BARE, _is_lastname_bare),
 ]
 DEFAULT_FALLBACK_TIER = TIER_VERY_LOW_OTHER
@@ -538,36 +538,43 @@ def assign_tier(
 
 class TieredConfidenceSelector(MatchSelector):
     """Tier-based selection: assign each candidate row a confidence tier from
-    ``TIER_RULES`` (read both ``filters`` AND ``negative_filters``), pick the
-    row(s) at the highest tier, delegate ties to ``fallback``.
+    ``TIER_RULES``, pick the row(s) at the highest tier, then break ties by
+    fewest ``negative_filters``, then delegate remaining ties to ``fallback``.
 
     Behavior:
 
     1. Compute tier rank (0 = best) for every row in the deduped frame.
     2. Filter to rows at the minimum (best) rank.
-    3. If 1 such row → unique match.
-    4. If >1 → call ``self.fallback.select(...)`` for tiebreaking.
-    5. If the best-tier rank is worse than ``MIN_ACCEPTABLE_TIER_RANK``,
+    3. Within that subset, find rows with the fewest negative filters
+       (``n_negative_filters`` tiebreaker). Real-world motivation: a row
+       that satisfies ``MEDIUM_HIGH_NAME_PLUS`` BUT has ``MIDDLE_INITIAL``
+       in ``negative_filters`` is empirically a false-positive risk
+       (seen in deans data), so the clean alternative at the same tier
+       should win.
+    4. If 1 row → unique match. ``SelectorResult`` carries
+       ``confidence_tier`` so the analyst can sort outputs by tier.
+    5. If still tied → call ``self.fallback.select(...)``.
+    6. If the best-tier rank is worse than ``MIN_ACCEPTABLE_TIER_RANK``,
        surface as ``unmatched_options`` (the matcher couldn't reach an
-       acceptable confidence level). The selected unmatched_reason is
-       ``Unmatcheds.UNFILTERABLE``.
+       acceptable confidence level).
 
     Class vars (override per study):
 
     - ``TIER_RULES`` — list of (name, predicate) tuples. Defaults to
-      ``DEFAULT_TIER_RULES`` which ports deans's rules + adds Section 5.8
-      negative-aware tiers (``LOW_NAME_DISAGREE``,
-      ``VERY_LOW_LASTNAME_DISAGREE``).
+      ``DEFAULT_TIER_RULES`` (positive-signal-only, ported verbatim from
+      deans). Each predicate takes ``(positive_filters, negative_filters)``
+      so a study can write predicates that use the negative signal if it
+      wants finer-grained tiering — the default rules don't, by design.
     - ``FALLBACK_TIER`` — tier name assigned when no rule fires.
     - ``MIN_ACCEPTABLE_TIER_RANK`` — rows below this rank are surfaced as
       unmatched. Defaults to ``len(DEFAULT_TIER_RULES) + 1`` (i.e. accept
-      anything including the fallback). Set to e.g. ``3`` (rank of
-      ``TIER_LOW_NAME_DISAGREE``) to reject everything LOW_* or worse.
+      anything including the fallback). Set to e.g. ``2`` to reject
+      everything below ``LOW_LASTNAME_PLUS_ONE`` (rank 3).
 
     Example — stricter selector that rejects low-confidence tiers::
 
         class StrictTieredSelector(TieredConfidenceSelector):
-            MIN_ACCEPTABLE_TIER_RANK = 2  # reject rank >= LOW_NAME_DISAGREE
+            MIN_ACCEPTABLE_TIER_RANK = 2  # reject rank >= LOW_LASTNAME_PLUS_ONE
     """
 
     TIER_RULES: ClassVar[list[TierRule]] = DEFAULT_TIER_RULES
@@ -589,6 +596,11 @@ class TieredConfidenceSelector(MatchSelector):
         negative = set(row.get("negative_filters") or [])
         return assign_tier(positive, negative, self.TIER_RULES, self.FALLBACK_TIER)
 
+    @staticmethod
+    def _n_negative(row: pd.Series) -> int:
+        neg = row.get("negative_filters", None)
+        return len(neg) if neg is not None else 0
+
     def select(
         self,
         payments_x_conflicted: pd.DataFrame,
@@ -604,12 +616,23 @@ class TieredConfidenceSelector(MatchSelector):
             return SelectorResult.unmatched_options_from(
                 options=payments_x_conflicted,
                 reason=Unmatcheds.UNFILTERABLE,
-                representative_filters=list(payments_x_conflicted.iloc[0]["filters"]),
+                confidence_tier=tiers[ranks == best_rank].iloc[0],
             )
 
+        # The best-tier subset.
+        best_tier = tiers[ranks == best_rank].iloc[0]
         best_rows = payments_x_conflicted[ranks == best_rank]
         if len(best_rows) == 1:
-            return SelectorResult.unique(best_rows)
+            return SelectorResult.unique(best_rows, confidence_tier=best_tier)
 
-        # Multiple rows at the best tier — delegate tiebreak to fallback.
-        return self.fallback.select(best_rows, matcher)
+        # Multiple rows at the best tier — break ties by fewest negatives.
+        # This is the real-world fix: a same-tier row with MIDDLE_INITIAL
+        # in negative_filters loses to the clean alternative.
+        n_neg = best_rows.apply(self._n_negative, axis=1)
+        min_neg = n_neg.min()
+        cleanest_rows = best_rows[n_neg == min_neg]
+        if len(cleanest_rows) == 1:
+            return SelectorResult.unique(cleanest_rows, confidence_tier=best_tier)
+
+        # Still tied at best tier AND same negative count → fallback.
+        return self.fallback.select(cleanest_rows, matcher)

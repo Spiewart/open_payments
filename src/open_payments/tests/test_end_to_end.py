@@ -319,6 +319,58 @@ def test__section_5_8_winning_rows_have_empty_negative_filters(cms_data_dir, fix
         )
 
 
+def test__output_frames_carry_negative_filter_columns(cms_data_dir, fixture_years):
+    """Section 5.8 + TieredConfidenceSelector v2: every output frame
+    (unique_ids, unmatched, unmatched_options) must carry these columns so
+    an analyst can review negative signals without re-deriving them:
+
+      - ``negative_filters`` (list[PaymentFilters])
+      - ``n_negative_filters`` (int — tally for sort/filter convenience)
+      - ``confidence_tier`` (str | None — None when using the cascade
+        selector; populated when using TieredConfidenceSelector)
+    """
+    raw = _raw_scenarios()
+    conflicteds = Conflicteds(raw).us_conflicteds_id_search_df()
+    payments = _load_payments(cms_data_dir, fixture_years)
+
+    matcher = ConflictedPaymentIDs(conflicteds=conflicteds, payments=payments)
+    matcher.search_for_conflicteds_ids()
+
+    for frame_name, frame in [
+        ("unique_ids", matcher.unique_ids),
+        ("unmatched", matcher.unmatched),
+        ("unmatched_options", matcher.unmatched_options),
+    ]:
+        for col in ("negative_filters", "n_negative_filters", "confidence_tier"):
+            assert col in frame.columns, (
+                f"{frame_name} is missing the {col} column required by "
+                f"Section 5.8 / TieredConfidenceSelector v2"
+            )
+
+    # n_negative_filters values must agree with len(negative_filters) row-by-row.
+    for _, row in matcher.unique_ids.iterrows():
+        assert row["n_negative_filters"] == len(row["negative_filters"])
+
+
+def test__tiered_selector_surfaces_confidence_tier_on_unique_ids(cms_data_dir, fixture_years):
+    """When TieredConfidenceSelector is plugged in, every unique match gets
+    a confidence_tier label."""
+    raw = _raw_scenarios()
+    conflicteds = Conflicteds(raw).us_conflicteds_id_search_df()
+    payments = _load_payments(cms_data_dir, fixture_years)
+
+    from ..selectors import TieredConfidenceSelector
+
+    matcher = ConflictedPaymentIDs(
+        conflicteds=conflicteds, payments=payments, selector=TieredConfidenceSelector()
+    )
+    matcher.search_for_conflicteds_ids()
+
+    assert "confidence_tier" in matcher.unique_ids.columns
+    # All 4 clean A/B/C/D scenarios should be at a real tier (not None).
+    assert matcher.unique_ids["confidence_tier"].notna().all()
+
+
 def test__regression_bug_0d_no_setting_with_copy_warnings(cms_data_dir, fixture_years):
     """Bug 0d FIXED: `add_unmatched` now copies the slice at entry, so
     SettingWithCopyWarning no longer fires on unmatched rows. End-to-end

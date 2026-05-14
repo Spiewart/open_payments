@@ -133,32 +133,43 @@ fixture. All 370 tests passing.
 Added to [src/open_payments/selectors.py](src/open_payments/selectors.py)
 alongside the existing `DefaultMatchSelector` / `IdentifierWinsSelector`.
 
-Ports deans's `match_confidence.py` tier rules and extends them with
-Section 5.8 negative-filter awareness:
+Design (v2, after the v1 demotion-guards approach was rejected for
+collapsing positive-evidence information):
 
 - **Tier rules** are positive-signal predicates ported verbatim from
-  deans (`HIGH_NPI`, `MEDIUM_HIGH_NAME_PLUS`, `MEDIUM_NAME_PARTIAL`,
+  deans's match_confidence.py: 6 tiers
+  (`HIGH_NPI`, `MEDIUM_HIGH_NAME_PLUS`, `MEDIUM_NAME_PARTIAL`,
   `LOW_LASTNAME_PLUS_ONE`, `LOW_NAME_ONLY`, `VERY_LOW_LASTNAME_BARE`)
-  PLUS two new negative-aware tiers (`LOW_NAME_DISAGREE`,
-  `VERY_LOW_LASTNAME_DISAGREE`).
-- **Negative-signal demotion** is embedded inside each clean-tier
-  predicate: e.g. `_is_medium_high_name_plus` short-circuits to False if
-  any `ANY_MIDDLENAME` filter appears in `negative_filters`, letting the
-  row fall through to `LOW_NAME_DISAGREE` further down the rules. This
-  preserves "rule index = confidence rank" invariant while still
-  expressing the Section 5.8 demotion semantics.
+  plus a `VERY_LOW_OTHER` fallback. Negative-signal info does NOT
+  affect tier assignment — a `MEDIUM_HIGH_NAME_PLUS` row stays at that
+  tier even when negative_filters is non-empty.
+- **Negative-signal info is preserved on parallel output columns**:
+  every output frame (`unique_ids`, `unmatched`, `unmatched_options`)
+  carries `negative_filters` (list), `n_negative_filters` (int tally),
+  and `confidence_tier` (str | None). Analysts can re-stratify
+  confident matches by negative-signal count at review time.
+- **Selection-time tiebreak by negative count**: when multiple rows
+  share the best tier, the selector prefers the row(s) with fewest
+  `negative_filters`. Real-world motivation: a deans
+  `MEDIUM_HIGH_NAME_PLUS` row with `MIDDLE_INITIAL` in negative_filters
+  was empirically a false positive — the clean same-tier alternative
+  should win.
 - **Override surface**: subclasses customize via `TIER_RULES`,
   `FALLBACK_TIER`, `MIN_ACCEPTABLE_TIER_RANK` class vars, or override
   `select()` outright.
-- **Selection semantics**: pick the row(s) at the highest tier (rank 0
-  = HIGH_NPI), delegate ties to a fallback selector (default
-  `DefaultMatchSelector`). If best-tier rank exceeds
-  `MIN_ACCEPTABLE_TIER_RANK`, surface as `unmatched_options`.
 
-17 new tests in `test_selectors.py` (469 total passing). End-to-end
-test confirms the synthetic A/B/C/D scenarios still resolve correctly
-under `TieredConfidenceSelector` (same unique matches as
-`DefaultMatchSelector`).
+`SelectorResult` gained `representative_negative_filters` and
+`confidence_tier` fields. `add_unique_id` and `add_unmatched` propagate
+all three new columns through.
+
+Tests:
+- `test_selectors.py` — 28 selector tests including parametrized tier
+  rule coverage and the real-world same-tier negative-tiebreak case.
+- `test_end_to_end.py` — pins that all three output frames carry the
+  new columns and that `n_negative_filters` agrees with
+  `len(negative_filters)` row-by-row.
+
+474 total tests passing; ruff clean.
 
 ---
 

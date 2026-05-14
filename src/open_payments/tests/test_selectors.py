@@ -11,11 +11,11 @@ from ..ids import ConflictedPaymentIDs, PaymentIDs
 from ..selectors import (
     DEFAULT_TIER_RULES,
     TIER_HIGH_NPI,
-    TIER_LOW_NAME_DISAGREE,
+    TIER_LOW_LASTNAME_PLUS_ONE,
     TIER_LOW_NAME_ONLY,
     TIER_MEDIUM_HIGH_NAME_PLUS,
     TIER_MEDIUM_NAME_PARTIAL,
-    TIER_VERY_LOW_LASTNAME_DISAGREE,
+    TIER_VERY_LOW_LASTNAME_BARE,
     TIER_VERY_LOW_OTHER,
     DefaultMatchSelector,
     IdentifierWinsSelector,
@@ -369,11 +369,25 @@ def test__identifier_wins_default_fallback_is_default_match_selector():
             set(),
             TIER_MEDIUM_NAME_PARTIAL,
         ),
-        # LOW_NAME_DISAGREE (Section 5.8): full name + middle disagrees.
+        # Negative-signal info does NOT demote tier — same MEDIUM_HIGH_NAME_PLUS
+        # with active middle disagreement stays at MEDIUM_HIGH; the disagreement
+        # is preserved on the parallel n_negative_filters column for analyst
+        # review (and is used as a tiebreak by the selector).
         (
-            {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.CITYSTATE},
-            {PaymentFilters.MIDDLENAME},
-            TIER_LOW_NAME_DISAGREE,
+            {
+                PaymentFilters.LASTNAME,
+                PaymentFilters.FIRSTNAME,
+                PaymentFilters.CITYSTATE,
+                PaymentFilters.MIDDLENAME,
+            },
+            {PaymentFilters.MIDDLE_INITIAL},
+            TIER_MEDIUM_HIGH_NAME_PLUS,
+        ),
+        # LOW_LASTNAME_PLUS_ONE: lastname + 1 disambiguator, no firstname.
+        (
+            {PaymentFilters.LASTNAME, PaymentFilters.CITYSTATE},
+            set(),
+            TIER_LOW_LASTNAME_PLUS_ONE,
         ),
         # LOW_NAME_ONLY: full name, no strong disambiguators.
         (
@@ -381,11 +395,19 @@ def test__identifier_wins_default_fallback_is_default_match_selector():
             set(),
             TIER_LOW_NAME_ONLY,
         ),
-        # VERY_LOW_LASTNAME_DISAGREE (Section 5.8): lastname + firstname disagrees.
+        # VERY_LOW_LASTNAME_BARE: lastname only, no other agreement.
+        (
+            {PaymentFilters.LASTNAME},
+            set(),
+            TIER_VERY_LOW_LASTNAME_BARE,
+        ),
+        # VERY_LOW_LASTNAME_BARE applies even when firstname is in negative_filters
+        # (the disagreement is preserved on the negative_filters output column;
+        # the tier itself only reflects positive evidence).
         (
             {PaymentFilters.LASTNAME},
             {PaymentFilters.FIRSTNAME},
-            TIER_VERY_LOW_LASTNAME_DISAGREE,
+            TIER_VERY_LOW_LASTNAME_BARE,
         ),
         # Fallback: empty filters → VERY_LOW_OTHER.
         (set(), set(), TIER_VERY_LOW_OTHER),
@@ -408,13 +430,14 @@ def test__assign_tier_rule_order_first_match_wins():
     assert assign_tier(filters, set()) == TIER_HIGH_NPI
 
 
-def test__assign_tier_negative_demotes_full_name_to_low_name_disagree():
-    """Without negative_filters, this row is MEDIUM_NAME_PARTIAL. Add MIDDLENAME
-    to negative_filters and it gets demoted to LOW_NAME_DISAGREE — the whole
-    point of Section 5.8 negative-aware tiering."""
+def test__assign_tier_default_rules_ignore_negative_signal():
+    """Per the redesign: default tier rules are positive-signal only. A row
+    with the same positive evidence stays at the same tier regardless of
+    negative_filters. Negative info lives on a parallel output column."""
     positive = {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.CITYSTATE}
     assert assign_tier(positive, set()) == TIER_MEDIUM_NAME_PARTIAL
-    assert assign_tier(positive, {PaymentFilters.MIDDLENAME}) == TIER_LOW_NAME_DISAGREE
+    assert assign_tier(positive, {PaymentFilters.MIDDLENAME}) == TIER_MEDIUM_NAME_PARTIAL
+    assert assign_tier(positive, {PaymentFilters.MIDDLE_INITIAL}) == TIER_MEDIUM_NAME_PARTIAL
 
 
 # ---------------------------------------------------------------------------
@@ -455,30 +478,33 @@ def test__tiered_selector_picks_single_highest_tier_row():
     assert result.match.iloc[0]["profile_id"] == 101
 
 
-def test__tiered_selector_negative_signal_demotes_to_lower_tier():
-    """The Section 5.8 capability: positive-only this row would be
-    MEDIUM_NAME_PARTIAL, but with MIDDLENAME in negative_filters it drops to
-    LOW_NAME_DISAGREE, allowing the cleaner row to win even with fewer filters."""
+def test__tiered_selector_same_tier_tiebreak_by_fewest_negative_filters():
+    """Real-world deans case: a MEDIUM_HIGH_NAME_PLUS row with MIDDLE_INITIAL
+    in negative_filters loses to the same-tier clean alternative. The tier
+    rules themselves are positive-only — selection-time tiebreak (not tier
+    demotion) is how the negative signal influences the winner."""
     df = pd.DataFrame(
         [
-            # Disagreeing-middle-name candidate — should demote to LOW_NAME_DISAGREE.
+            # Same-tier (MEDIUM_HIGH_NAME_PLUS) but with a negative signal —
+            # loses on the negative-count tiebreak.
             _tier_row(
                 profile_id=302,
                 filters=[
                     PaymentFilters.LASTNAME,
                     PaymentFilters.FIRSTNAME,
                     PaymentFilters.CITYSTATE,
+                    PaymentFilters.MIDDLENAME,
                 ],
-                negative_filters=[PaymentFilters.MIDDLENAME],
+                negative_filters=[PaymentFilters.MIDDLE_INITIAL],
             ),
-            # Clean candidate at the same baseline tier minus the negative —
-            # stays at MEDIUM_NAME_PARTIAL.
+            # Clean candidate at the same tier — wins because n_negative=0.
             _tier_row(
                 profile_id=301,
                 filters=[
                     PaymentFilters.LASTNAME,
                     PaymentFilters.FIRSTNAME,
                     PaymentFilters.CITYSTATE,
+                    PaymentFilters.MIDDLENAME,
                 ],
             ),
         ]
@@ -486,6 +512,33 @@ def test__tiered_selector_negative_signal_demotes_to_lower_tier():
     result = TieredConfidenceSelector().select(df, matcher=_stub_matcher_context())
     assert result.kind == "unique"
     assert result.match.iloc[0]["profile_id"] == 301
+    assert result.confidence_tier == TIER_MEDIUM_HIGH_NAME_PLUS
+
+
+def test__tiered_selector_keeps_confident_match_when_no_clean_alternative():
+    """If the ONLY MEDIUM_HIGH row has a negative signal, it should still be
+    returned as the unique match — its tier is still MEDIUM_HIGH_NAME_PLUS.
+    The negative_filters info travels via SelectorResult so the analyst can
+    review it; we don't drop the match just because it has a negative signal."""
+    df = pd.DataFrame(
+        [
+            _tier_row(
+                profile_id=302,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.CITYSTATE,
+                    PaymentFilters.MIDDLENAME,
+                ],
+                negative_filters=[PaymentFilters.MIDDLE_INITIAL],
+            ),
+        ]
+    )
+    result = TieredConfidenceSelector().select(df, matcher=_stub_matcher_context())
+    assert result.kind == "unique"
+    assert result.match.iloc[0]["profile_id"] == 302
+    assert result.confidence_tier == TIER_MEDIUM_HIGH_NAME_PLUS
+    assert result.representative_negative_filters == [PaymentFilters.MIDDLE_INITIAL]
 
 
 def test__tiered_selector_ties_at_top_delegate_to_fallback():
@@ -556,13 +609,18 @@ def test__tiered_selector_default_fallback_is_default_match_selector():
     assert isinstance(selector.fallback, DefaultMatchSelector)
 
 
-def test__tiered_selector_default_rule_list_has_8_rules():
-    """Sanity check: the documented rule order matters; pin the count."""
-    assert len(DEFAULT_TIER_RULES) == 8
-    assert [name for name, _ in DEFAULT_TIER_RULES][:3] == [
+def test__tiered_selector_default_rule_list_pins_deans_compat():
+    """Default rule list ports deans's match_confidence.py rules verbatim
+    (6 positive-signal-only tiers). Negative-aware behavior happens at the
+    selector level via tiebreaking, not via tier-list extension."""
+    assert len(DEFAULT_TIER_RULES) == 6
+    assert [name for name, _ in DEFAULT_TIER_RULES] == [
         TIER_HIGH_NPI,
         TIER_MEDIUM_HIGH_NAME_PLUS,
         TIER_MEDIUM_NAME_PARTIAL,
+        TIER_LOW_LASTNAME_PLUS_ONE,
+        TIER_LOW_NAME_ONLY,
+        TIER_VERY_LOW_LASTNAME_BARE,
     ]
 
 

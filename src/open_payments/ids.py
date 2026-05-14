@@ -123,6 +123,8 @@ class Conflicted_x_PaymentIDs:
         unmatched: Unmatcheds,
         filters: list[PaymentFilters],
         num_filters: int,
+        negative_filters: list[PaymentFilters] | None = None,
+        confidence_tier: str | None = None,
     ) -> None:
         """Adds the unmatched conflicted provider to the unmatched
         DataFrame.
@@ -130,11 +132,20 @@ class Conflicted_x_PaymentIDs:
         Bug 0d fix: `conflicted` arrives as a slice of `self.conflicteds`;
         copying at entry avoids the SettingWithCopyWarning that previously
         fired three times per unmatched row.
+
+        ``negative_filters`` / ``confidence_tier`` are propagated from
+        the selector so the analyst can see active-disagreement signals
+        and tier labels on unmatched rows too (Section 5.8 + tier-aware
+        selectors).
         """
         conflicted = conflicted.copy()
         conflicted["unmatched"] = unmatched
         conflicted["filters"] = [filters] * len(conflicted)
         conflicted["num_filters"] = num_filters
+        neg = list(negative_filters) if negative_filters is not None else []
+        conflicted["negative_filters"] = [neg] * len(conflicted)
+        conflicted["n_negative_filters"] = len(neg)
+        conflicted["confidence_tier"] = confidence_tier
 
         self.unmatched = pd.concat([self.unmatched, conflicted])
 
@@ -150,12 +161,34 @@ class Conflicted_x_PaymentIDs:
     def add_unique_id(
         self,
         highest_matches: pd.DataFrame,
+        confidence_tier: str | None = None,
     ) -> None:
+        """Append a unique-match row to ``self.unique_ids``.
+
+        Adds derived audit columns:
+          - ``num_filters`` (positive filter count)
+          - ``n_negative_filters`` (Section 5.8 negative-signal tally)
+          - ``confidence_tier`` (set by tier-aware selectors;
+            None for cascade selectors)
+
+        ``negative_filters`` itself already propagates as a column from
+        the merged frame, so it's not re-added here — just the count
+        derivation and tier annotation.
+        """
+        highest_matches = highest_matches.copy()
         highest_matches.insert(
             0,
             "num_filters",
             highest_matches["filters"].apply(len),
         )
+        if "negative_filters" in highest_matches.columns:
+            highest_matches["n_negative_filters"] = highest_matches["negative_filters"].apply(
+                lambda x: len(x) if x is not None else 0
+            )
+        else:
+            highest_matches["negative_filters"] = [[] for _ in range(len(highest_matches))]
+            highest_matches["n_negative_filters"] = 0
+        highest_matches["confidence_tier"] = confidence_tier
         self.unique_ids = pd.concat(
             [self.unique_ids, highest_matches],
             ignore_index=True,
@@ -374,13 +407,22 @@ class ConflictedPaymentIDs(
             logging.info(
                 f"Unique match selected for "
                 f"{first['conflict_first_name']} {first['last_name']} "
-                f"(filters={list(first['filters'])})"
+                f"(filters={list(first['filters'])}, "
+                f"negative_filters={list(first.get('negative_filters', []))}, "
+                f"tier={result.confidence_tier})"
             )
-            self.add_unique_id(result.match)
+            self.add_unique_id(result.match, confidence_tier=result.confidence_tier)
             return
 
         # kind == "unmatched_options"
-        self.unmatched_options = pd.concat([self.unmatched_options, result.unmatched_options])
+        options = result.unmatched_options.copy()
+        if "negative_filters" not in options.columns:
+            options["negative_filters"] = [[] for _ in range(len(options))]
+        options["n_negative_filters"] = options["negative_filters"].apply(
+            lambda x: len(x) if x is not None else 0
+        )
+        options["confidence_tier"] = result.confidence_tier
+        self.unmatched_options = pd.concat([self.unmatched_options, options])
         unmatched_conflict = self.conflicteds[
             self.conflicteds["provider_pk"] == payments_x_conflicted.iloc[0]["provider_pk"]
         ]
@@ -389,6 +431,8 @@ class ConflictedPaymentIDs(
             unmatched=result.unmatched_reason or Unmatcheds.UNFILTERABLE,
             filters=result.representative_filters,
             num_filters=len(result.representative_filters),
+            negative_filters=result.representative_negative_filters,
+            confidence_tier=result.confidence_tier,
         )
 
     def extract_single_match(
