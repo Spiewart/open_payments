@@ -9,10 +9,20 @@ from ..choices import PaymentFilters, Unmatcheds
 from ..conflicteds import Conflicteds
 from ..ids import ConflictedPaymentIDs, PaymentIDs
 from ..selectors import (
+    DEFAULT_TIER_RULES,
+    TIER_HIGH_NPI,
+    TIER_LOW_NAME_DISAGREE,
+    TIER_LOW_NAME_ONLY,
+    TIER_MEDIUM_HIGH_NAME_PLUS,
+    TIER_MEDIUM_NAME_PARTIAL,
+    TIER_VERY_LOW_LASTNAME_DISAGREE,
+    TIER_VERY_LOW_OTHER,
     DefaultMatchSelector,
     IdentifierWinsSelector,
     MatchSelector,
     SelectorResult,
+    TieredConfidenceSelector,
+    assign_tier,
 )
 from .factories import make_raw_conflicted_row
 
@@ -330,6 +340,259 @@ def test__identifier_wins_default_fallback_is_default_match_selector():
 # ---------------------------------------------------------------------------
 # End-to-end: IdentifierWinsSelector on a real-ish fixture
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# TieredConfidenceSelector — tier rule predicates (pure helpers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "positive,negative,expected_tier",
+    [
+        # HIGH_NPI: NPI alone is enough.
+        ({PaymentFilters.NPI}, set(), TIER_HIGH_NPI),
+        # MEDIUM_HIGH: last + first + 2 strong disambiguators (citystate + middle).
+        (
+            {
+                PaymentFilters.LASTNAME,
+                PaymentFilters.FIRSTNAME,
+                PaymentFilters.CITYSTATE,
+                PaymentFilters.MIDDLENAME,
+            },
+            set(),
+            TIER_MEDIUM_HIGH_NAME_PLUS,
+        ),
+        # MEDIUM: last + first + 1 strong disambiguator.
+        (
+            {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.CITYSTATE},
+            set(),
+            TIER_MEDIUM_NAME_PARTIAL,
+        ),
+        # LOW_NAME_DISAGREE (Section 5.8): full name + middle disagrees.
+        (
+            {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.CITYSTATE},
+            {PaymentFilters.MIDDLENAME},
+            TIER_LOW_NAME_DISAGREE,
+        ),
+        # LOW_NAME_ONLY: full name, no strong disambiguators.
+        (
+            {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME},
+            set(),
+            TIER_LOW_NAME_ONLY,
+        ),
+        # VERY_LOW_LASTNAME_DISAGREE (Section 5.8): lastname + firstname disagrees.
+        (
+            {PaymentFilters.LASTNAME},
+            {PaymentFilters.FIRSTNAME},
+            TIER_VERY_LOW_LASTNAME_DISAGREE,
+        ),
+        # Fallback: empty filters → VERY_LOW_OTHER.
+        (set(), set(), TIER_VERY_LOW_OTHER),
+    ],
+)
+def test__assign_tier_default_rules(positive, negative, expected_tier):
+    assert assign_tier(positive, negative) == expected_tier
+
+
+def test__assign_tier_rule_order_first_match_wins():
+    """If filters satisfy both HIGH_NPI and MEDIUM_HIGH_NAME_PLUS, HIGH_NPI wins
+    because it's first in DEFAULT_TIER_RULES."""
+    filters = {
+        PaymentFilters.NPI,
+        PaymentFilters.LASTNAME,
+        PaymentFilters.FIRSTNAME,
+        PaymentFilters.CITYSTATE,
+        PaymentFilters.MIDDLENAME,
+    }
+    assert assign_tier(filters, set()) == TIER_HIGH_NPI
+
+
+def test__assign_tier_negative_demotes_full_name_to_low_name_disagree():
+    """Without negative_filters, this row is MEDIUM_NAME_PARTIAL. Add MIDDLENAME
+    to negative_filters and it gets demoted to LOW_NAME_DISAGREE — the whole
+    point of Section 5.8 negative-aware tiering."""
+    positive = {PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.CITYSTATE}
+    assert assign_tier(positive, set()) == TIER_MEDIUM_NAME_PARTIAL
+    assert assign_tier(positive, {PaymentFilters.MIDDLENAME}) == TIER_LOW_NAME_DISAGREE
+
+
+# ---------------------------------------------------------------------------
+# TieredConfidenceSelector — DataFrame-level selection
+# ---------------------------------------------------------------------------
+
+
+def _tier_row(
+    profile_id: int,
+    filters: list[PaymentFilters],
+    negative_filters: list[PaymentFilters] | None = None,
+    payment_id: int = 0,
+) -> dict:
+    row = _make_payments_x_conflicted_row(
+        profile_id=profile_id, filters=filters, payment_id=payment_id
+    )
+    row["negative_filters"] = negative_filters or []
+    return row
+
+
+def test__tiered_selector_picks_single_highest_tier_row():
+    """One row at HIGH_NPI, one at MEDIUM_NAME_PARTIAL → HIGH_NPI wins."""
+    df = pd.DataFrame(
+        [
+            _tier_row(profile_id=101, filters=[PaymentFilters.LASTNAME, PaymentFilters.NPI]),
+            _tier_row(
+                profile_id=102,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.CITYSTATE,
+                ],
+            ),
+        ]
+    )
+    result = TieredConfidenceSelector().select(df, matcher=_stub_matcher_context())
+    assert result.kind == "unique"
+    assert result.match.iloc[0]["profile_id"] == 101
+
+
+def test__tiered_selector_negative_signal_demotes_to_lower_tier():
+    """The Section 5.8 capability: positive-only this row would be
+    MEDIUM_NAME_PARTIAL, but with MIDDLENAME in negative_filters it drops to
+    LOW_NAME_DISAGREE, allowing the cleaner row to win even with fewer filters."""
+    df = pd.DataFrame(
+        [
+            # Disagreeing-middle-name candidate — should demote to LOW_NAME_DISAGREE.
+            _tier_row(
+                profile_id=302,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.CITYSTATE,
+                ],
+                negative_filters=[PaymentFilters.MIDDLENAME],
+            ),
+            # Clean candidate at the same baseline tier minus the negative —
+            # stays at MEDIUM_NAME_PARTIAL.
+            _tier_row(
+                profile_id=301,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.CITYSTATE,
+                ],
+            ),
+        ]
+    )
+    result = TieredConfidenceSelector().select(df, matcher=_stub_matcher_context())
+    assert result.kind == "unique"
+    assert result.match.iloc[0]["profile_id"] == 301
+
+
+def test__tiered_selector_ties_at_top_delegate_to_fallback():
+    """Two rows both at HIGH_NPI → fallback handles tiebreak."""
+    df = pd.DataFrame(
+        [
+            _tier_row(profile_id=101, filters=[PaymentFilters.LASTNAME, PaymentFilters.NPI]),
+            _tier_row(profile_id=102, filters=[PaymentFilters.LASTNAME, PaymentFilters.NPI]),
+        ]
+    )
+    fallback = _RecordingFallback()
+    TieredConfidenceSelector(fallback=fallback).select(df, matcher=_stub_matcher_context())
+    assert fallback.called
+    assert len(fallback.received_df) == 2  # both top-tier rows passed through
+
+
+def test__tiered_selector_below_min_acceptable_rank_yields_unmatched_options():
+    """Set MIN_ACCEPTABLE_TIER_RANK to reject everything LOW_* or worse.
+    A row at LOW_NAME_ONLY is then below the threshold → unmatched_options."""
+
+    class _Strict(TieredConfidenceSelector):
+        # Rank 3 is LOW_NAME_DISAGREE; only ranks 0..2 (HIGH/MEDIUM_HIGH/MEDIUM) accepted.
+        MIN_ACCEPTABLE_TIER_RANK = 2
+
+    df = pd.DataFrame(
+        [
+            # LOW_NAME_ONLY (rank 5) — below threshold.
+            _tier_row(
+                profile_id=101,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME],
+            ),
+        ]
+    )
+    result = _Strict().select(df, matcher=_stub_matcher_context())
+    assert result.kind == "unmatched_options"
+    assert result.unmatched_reason == Unmatcheds.UNFILTERABLE
+
+
+def test__tiered_selector_custom_tier_rules_via_class_var():
+    """Override TIER_RULES with a custom list — selector should respect it."""
+
+    def _is_credential_only(f, n):
+        return f == {PaymentFilters.LASTNAME, PaymentFilters.CREDENTIAL}
+
+    class _CustomRules(TieredConfidenceSelector):
+        TIER_RULES = [("CREDENTIAL_ONLY", _is_credential_only)]
+        FALLBACK_TIER = "EVERYTHING_ELSE"
+
+    df = pd.DataFrame(
+        [
+            _tier_row(
+                profile_id=101,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.CREDENTIAL],
+            ),
+            _tier_row(
+                profile_id=102,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME],
+            ),
+        ]
+    )
+    result = _CustomRules().select(df, matcher=_stub_matcher_context())
+    assert result.kind == "unique"
+    assert result.match.iloc[0]["profile_id"] == 101  # the CREDENTIAL_ONLY row wins
+
+
+def test__tiered_selector_default_fallback_is_default_match_selector():
+    selector = TieredConfidenceSelector()
+    assert isinstance(selector.fallback, DefaultMatchSelector)
+
+
+def test__tiered_selector_default_rule_list_has_8_rules():
+    """Sanity check: the documented rule order matters; pin the count."""
+    assert len(DEFAULT_TIER_RULES) == 8
+    assert [name for name, _ in DEFAULT_TIER_RULES][:3] == [
+        TIER_HIGH_NPI,
+        TIER_MEDIUM_HIGH_NAME_PLUS,
+        TIER_MEDIUM_NAME_PARTIAL,
+    ]
+
+
+# ---------------------------------------------------------------------------
+# TieredConfidenceSelector — end-to-end against the synthetic fixture
+# ---------------------------------------------------------------------------
+
+
+def test__tiered_selector_end_to_end_matches_clean_scenarios(cms_data_dir, fixture_years):
+    """Scenarios A/B/C/D should resolve to the same unique matches as the
+    DefaultMatchSelector — the tiering should still arrive at HIGH-confidence
+    matches for these scenarios since they have multiple strong disambiguators."""
+    raw = _raw_scenarios()
+    conflicteds = Conflicteds(raw).us_conflicteds_id_search_df()
+    payments = _load_payments(cms_data_dir, fixture_years)
+
+    matcher = ConflictedPaymentIDs(
+        conflicteds=conflicteds,
+        payments=payments,
+        selector=TieredConfidenceSelector(),
+    )
+    matcher.search_for_conflicteds_ids()
+
+    pk_to_profile = dict(
+        zip(matcher.unique_ids["provider_pk"], matcher.unique_ids["profile_id"], strict=True)
+    )
+    # A/B/C/D should all resolve to their expected CMS profiles (same as
+    # DefaultMatchSelector). Scenario E (Emily White ambiguous, no
+    # disambiguators) and X (no last-name match) remain unmatched.
+    assert pk_to_profile == {0: 101, 1: 201, 2: 301, 3: 401}
 
 
 def test__identifier_wins_end_to_end_with_npi_in_conflicted(cms_data_dir, fixture_years):

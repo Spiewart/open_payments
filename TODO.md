@@ -128,26 +128,37 @@ DefaultMatchSelector behavior preservation, IdentifierWinsSelector
 NPI-wins / fallback / custom IDENTIFIER_FILTERS / end-to-end with real
 fixture. All 370 tests passing.
 
-### TieredConfidenceSelector — next natural step now that Section 5.8 has landed
+### TieredConfidenceSelector — DONE
 
-A third built-in selector porting deans's `match_confidence.py` tier rules
-(HIGH_NPI / MEDIUM_HIGH_NAME_PLUS / LOW_NAME_ONLY / VERY_LOW_LASTNAME_BARE)
-is now buildable — Section 5.8 added the negative-filter signal the tier
-rules need to distinguish "middle name agrees" from "middle name not present"
-from "middle name actively disagrees" (the deans `LOW_LASTNAME_PLUS_ONE` tier
-specifically describes disagreement).
+Added to [src/open_payments/selectors.py](src/open_payments/selectors.py)
+alongside the existing `DefaultMatchSelector` / `IdentifierWinsSelector`.
 
-Design sketch:
-- New `TieredConfidenceSelector` in `selectors.py`, subclasses
-  `DefaultMatchSelector` so behavior preservation is the fallback.
-- Tier rules read both `filters` (positive evidence) and `negative_filters`
-  (DISAGREE signals) per row to score confidence. Example tier:
-  `LOW_LASTNAME_PLUS_ONE` fires when only LASTNAME + one positive filter
-  are present AND `negative_filters` is non-empty (active disagreement).
-- Override surface: a `TIER_RULES: list[TierRule]` class var so child apps
-  can replace / extend the deans defaults without rewriting `select()`.
+Ports deans's `match_confidence.py` tier rules and extends them with
+Section 5.8 negative-filter awareness:
 
-Defer the build to when there's a child-app need (deans is the obvious one).
+- **Tier rules** are positive-signal predicates ported verbatim from
+  deans (`HIGH_NPI`, `MEDIUM_HIGH_NAME_PLUS`, `MEDIUM_NAME_PARTIAL`,
+  `LOW_LASTNAME_PLUS_ONE`, `LOW_NAME_ONLY`, `VERY_LOW_LASTNAME_BARE`)
+  PLUS two new negative-aware tiers (`LOW_NAME_DISAGREE`,
+  `VERY_LOW_LASTNAME_DISAGREE`).
+- **Negative-signal demotion** is embedded inside each clean-tier
+  predicate: e.g. `_is_medium_high_name_plus` short-circuits to False if
+  any `ANY_MIDDLENAME` filter appears in `negative_filters`, letting the
+  row fall through to `LOW_NAME_DISAGREE` further down the rules. This
+  preserves "rule index = confidence rank" invariant while still
+  expressing the Section 5.8 demotion semantics.
+- **Override surface**: subclasses customize via `TIER_RULES`,
+  `FALLBACK_TIER`, `MIN_ACCEPTABLE_TIER_RANK` class vars, or override
+  `select()` outright.
+- **Selection semantics**: pick the row(s) at the highest tier (rank 0
+  = HIGH_NPI), delegate ties to a fallback selector (default
+  `DefaultMatchSelector`). If best-tier rank exceeds
+  `MIN_ACCEPTABLE_TIER_RANK`, surface as `unmatched_options`.
+
+17 new tests in `test_selectors.py` (469 total passing). End-to-end
+test confirms the synthetic A/B/C/D scenarios still resolve correctly
+under `TieredConfidenceSelector` (same unique matches as
+`DefaultMatchSelector`).
 
 ---
 
