@@ -262,43 +262,66 @@ new code should use the SearchResult methods.
 
 ---
 
-## Section 6 — Matcher filter-loop optimization (scoped) — DONE
+## Section 6 — Matcher vectorization — DONE
+
+Two-phase optimization landed:
+
+### Phase 1 — Inner filter loop (scoped, already shipped earlier)
 
 Replaced the inner ``for payment_filter in self.filters:
-merged.apply(filter_payment, axis=1)`` loop in
-``Conflicted_x_PaymentIDs.filter_payments_for_conflicted`` with a single
+merged.apply(filter_payment, axis=1)`` loop with a single
 ``merged.apply(self.apply_all_filters_to_row, axis=1)`` that visits each
 row once and runs every filter in ``self.filters`` order.
 
 - 14 separate row-wise pandas-apply iterations → 1 iteration per merged frame.
-- Behavior preserved: filter order within a row is identical to the legacy
-  loop, so supersession rules (e.g. ``FIRSTNAME`` removing
-  ``FIRSTNAME_PARTIAL``) still apply.
-- Benchmark (100 conflicteds × 1 matching profile in the synthetic fixture):
-  **0.80s → 0.34s (~2.3× speedup)**.
+- Benchmark (100 conflicteds, single profile per CMS row): **0.80s → 0.34s
+  (~2.3× speedup)**.
 
-3 new tests in [test_filter_outcomes.py](src/open_payments/tests/test_filter_outcomes.py)
-pin the contract: filter outcomes route correctly per filter, filter order
-is preserved, empty rows short-circuit. 493 total tests passing; ruff clean.
+### Phase 2 — Cross-merge vectorization (NEW)
 
-### Remaining Section 6 work (deferred)
+Replaced the outer ``for _, conflicted in conflicteds.iterrows()`` loop
+with a hybrid two-phase pipeline in
+``Conflicted_x_PaymentIDs.search_for_conflicteds_ids``:
 
-The bigger architectural shift — cross-merge all conflicteds × all payments
-on last_name in one pass instead of per-conflicted ``.iterrows()`` —
-remains the larger optimization. Worthwhile when:
+1. ``_vectorized_search`` — single cross-merge of ``self.payments``
+   × ``self.conflicteds`` on lowercased ``last_name`` (case-insensitive
+   equality), one ``apply`` to evaluate all filters across the joint
+   frame, then ``groupby('provider_pk')`` to feed each conflicted's
+   candidates to the configured selector. Handles every provider whose
+   last name has an exact CMS match.
+2. **Per-provider fallback** — provider_pks NOT covered by phase 1 fall
+   through to the legacy ``filter_payments_for_conflicted`` path, which
+   uses ``merge_by_last_name``'s multi-word ``str.contains`` fallback.
+   Necessary for cases like conflicted "John Smith Jones" vs CMS
+   "Smith-Jones" where exact-key match misses but the multi-word
+   fallback hits. Also catches the NOLASTNAME case.
 
-- Production runs hit thousands of conflicteds and the per-conflicted
-  Python overhead of ``.iterrows()`` becomes the dominant cost.
-- Section 5.9 (Research PI block 6× scanning) lands; the cross-merge is a
-  prerequisite per the original plan.
+Subclasses can opt out of vectorization by overriding ``_vectorized_search``
+to return ``set()``.
 
-Risk: high — ``merge_by_last_name`` has special-case handling for
-multi-word last names that doesn't generalize trivially to a cross-merge.
-A behavior-preserving cross-merge needs careful handling of the multi-name
-``str.contains("&".join(...))`` branch.
+Benchmarks (synthetic fixture):
 
-Keep ``LegacyConflictedPaymentIDs`` (the current matcher renamed) as an
-A/B comparison point for the eventual rewrite.
+| Workload | Per-provider only | Vectorized | Speedup |
+|----------|-------------------|-----------:|--------:|
+| 600 conflicteds, all matching one profile | 1.83s | 0.87s | 2.1× |
+| 600 mixed lastnames across 5 fixture profiles | — | 1.30s | — |
+
+Real-world payoff is larger because real CMS data has more candidates per
+common last name (Smith, Jones, etc.) — the vectorized path amortizes the
+pandas merge/concat overhead across all conflicteds at once instead of
+paying per-conflicted.
+
+9 new tests in [test_vectorized_search.py](src/open_payments/tests/test_vectorized_search.py):
+- Three behavior-parity tests (vectorized output ≡ per-provider output for
+  unique_ids / unmatched / unmatched_options on the canonical fixture).
+- Vectorized phase claims the right provider_pks (5 of 6 scenarios; the
+  no-last-name case correctly falls through).
+- Hyphenated last name handled by exact-key merge.
+- NOLASTNAME path still fires through fallback.
+- Empty payments / empty conflicteds edge cases.
+- Subclass opt-out via ``_vectorized_search`` override.
+
+503 total tests passing; ruff clean.
 
 ---
 

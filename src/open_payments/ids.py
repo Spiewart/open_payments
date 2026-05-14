@@ -302,7 +302,29 @@ class ConflictedPaymentIDs(
     ) -> None:
         """Searches for OpenPayments IDs for the conflicted providers and
         updates the unmatched and unique_ids attributes with search results,
-        or lack thereof."""
+        or lack thereof.
+
+        Section 6 (full vectorization): two-phase pipeline:
+
+        1. **Vectorized cross-merge** (``_vectorized_search``): single merge
+           of all conflicteds × all payments on the merge column
+           (case-insensitive equality), one ``apply`` to evaluate all
+           filters across the joint frame, then ``groupby('provider_pk')``
+           to run the selector once per conflicted. Handles the common case
+           (single-word last names with an exact CMS match) without paying
+           the per-conflicted Python overhead.
+
+        2. **Per-provider fallback**: provider_pks NOT covered by the
+           vectorized phase fall through to the legacy per-provider path
+           (``filter_payments_for_conflicted``), which uses
+           ``merge_by_last_name``'s multi-word ``str.contains`` fallback.
+           Necessary for cases like conflicted "John Smith Jones" vs CMS
+           "Smith-Jones" where exact-key match misses but the multi-word
+           fallback hits.
+
+        Subclasses can opt out of vectorization by overriding
+        ``_vectorized_search`` to return ``set()``.
+        """
 
         # Add a conflict_ prefix to the columns of the conflicteds DataFrame
         # to avoid name clashes with the payments DataFrame
@@ -314,29 +336,83 @@ class ConflictedPaymentIDs(
             }
         )
 
-        # Iterate over conflicteds and filter the payments DataFrame
-        # for matches
-        # Will populate the unique_ids and unmatched DataFrame
-        # if there is a match or no match respectively
+        # Phase 1: vectorized cross-merge for the common path.
+        handled_pks = self._vectorized_search(conflicteds=conflicteds)
+
+        # Phase 2: per-provider fallback for everyone the vectorized path
+        # didn't handle. Most relevant for multi-word last names that miss
+        # the exact-key merge but hit the str.contains fallback.
         for _, conflicted in conflicteds.iterrows():
-            # Don't re-filter provider_pks that have already been filtered.
-            # This is to allow looping through the pre-loaded OpenPayments
-            # dataframes without having to re-read them.
+            pk = conflicted["provider_pk"]
+            if pk in handled_pks:
+                continue
+            # Defensive guard mirroring the legacy "skip already-processed"
+            # check (relevant when subclasses pre-populate unique_ids /
+            # unmatched between vectorized and per-provider phases).
+            if not self.unique_ids.empty and pk in self.unique_ids["provider_pk"].values:
+                continue
+            if not self.unmatched.empty and pk in self.unmatched["provider_pk"].values:
+                continue
             logging.info(
-                f"Processing conflicted provider: {conflicted['conflict_first_name']} {conflicted['last_name']}"
+                f"Per-provider fallback: {conflicted.get('conflict_first_name', '?')} "
+                f"{conflicted[self.merge_column]}"
             )
-            if (
-                conflicted["provider_pk"] not in self.unique_ids["provider_pk"].values
-                if not self.unique_ids.empty
-                else True
-            ) and (
-                conflicted["provider_pk"] not in self.unmatched["provider_pk"].values
-                if not self.unmatched.empty
-                else True
-            ):
-                self.filter_payments_for_conflicted(
-                    conflicted=conflicted,
-                )
+            self.filter_payments_for_conflicted(conflicted=conflicted)
+
+    def _vectorized_search(
+        self,
+        conflicteds: pd.DataFrame,
+    ) -> set:
+        """Vectorized cross-merge entry point. See
+        :meth:`search_for_conflicteds_ids` for the design.
+
+        Returns the set of provider_pks handled by this phase. Provider_pks
+        NOT returned fall through to the per-provider path so multi-word
+        ``merge_by_last_name`` fallback can fire.
+
+        Currently only specialized for ``merge_column == "last_name"``.
+        Other merge columns return an empty set (full per-provider fallback).
+        Override to add vectorization for a different merge column.
+        """
+        if self.merge_column != "last_name":
+            return set()
+        if self.payments is None or self.payments.empty or conflicteds.empty:
+            return set()
+
+        # Case-insensitive join key, computed on a copy so we don't mutate
+        # self.payments / the renamed conflicteds frame.
+        payments_keyed = self.payments.assign(
+            _op_lname_key=self.payments[self.merge_column].astype(str).str.lower()
+        )
+        conflicteds_keyed = conflicteds.assign(
+            _op_lname_key=conflicteds[self.merge_column].astype(str).str.lower()
+        ).drop(columns=[self.merge_column])
+
+        merged = payments_keyed.merge(conflicteds_keyed, on="_op_lname_key").drop(
+            columns=["_op_lname_key"]
+        )
+
+        if merged.empty:
+            return set()
+
+        # Initialize filter columns — every merged row matched on LASTNAME
+        # by construction. Same shape as merge_by_last_name produces in the
+        # per-provider path.
+        merged.insert(0, "filters", [[PaymentFilters.LASTNAME]] * len(merged))
+        merged.insert(1, "negative_filters", [[] for _ in range(len(merged))])
+
+        merged = self.convert_merged_dtypes(merged)
+        merged = merged.apply(self.apply_all_filters_to_row, axis=1)
+
+        # Run the selector once per provider_pk group. Selector + dedupe +
+        # add_unique_id / add_unmatched all already handle a single
+        # provider's candidates correctly — this just feeds them in.
+        handled: set = set()
+        for provider_pk, group in merged.groupby("provider_pk", sort=False):
+            self.process_filtered_payments_x_conflicteds(payments_x_conflicted=group)
+            handled.add(provider_pk)
+
+        return handled
 
     def filter_payments_for_conflicted(
         self,
