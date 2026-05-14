@@ -302,12 +302,25 @@ A/B comparison point for the eventual rewrite.
 
 ---
 
-## Section 8 — Documentation (later)
+## Section 8 — Documentation — DONE
 
-- README example for child-app wrapping (the
-  ``find_payments_for_conflicted_providers`` happy path).
-- ``docs/architecture.md`` — one diagram of the data flow
-  conflicteds → preprocess → search → narrow → aggregate.
-- ``CONTRIBUTING.md`` — how to add a new filter, how to extend payment
-  classes, how to add a new year's CMS publication.
-- ``py.typed`` marker so child apps get type-checking.
+- [README.md](README.md) — install, configure, single-call API example,
+  selector overview, ConflictX mixin override surface, audit-column
+  query example, repository layout, test commands.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — architectural overview (filter
+  application vs. selection), how-to guides for adding a new filter /
+  new year / new payment class, style + conventions.
+- ``src/open_payments/py.typed`` — marker file telling mypy/pyright the
+  package ships type hints. Wired through
+  ``[tool.hatch.build.targets.wheel]`` in pyproject.toml.
+
+Plus a real bug-fix surfaced by writing the README example:
+[conflicteds.py](src/open_payments/conflicteds.py) ``remove_non_us`` and
+the ``article/rank/entity`` drop were hard-coded to the deans schema and
+would ``KeyError`` for any non-deans child app. Both now tolerate
+missing columns:
+- ``remove_non_us`` no-ops when ``non_us`` isn't present.
+- The article/rank/entity drop uses ``errors="ignore"``.
+
+Regression test ``test__api_minimal_columns_input_matches_readme_example``
+pins the minimal 4-column input path. 494 tests passing.

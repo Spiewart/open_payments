@@ -64,12 +64,16 @@ class Conflicteds(
 
         self.conflicts = self.conflict_specialtys()
 
+        # Drop deans-style provenance columns when present. Child apps
+        # without these columns simply skip the drop — the canonical output
+        # only needs the conflict_* columns plus provider_pk.
         self.conflicts = self.conflicts.drop(
             columns=[
                 "article",
                 "rank",
                 "entity",
-            ]
+            ],
+            errors="ignore",
         )
 
         self.conflicts.insert(0, "provider_pk", value=range(len(self.conflicts)))
@@ -83,12 +87,18 @@ class Conflicteds(
         return self.conflicts
 
     def remove_non_us(self) -> pd.DataFrame:
-        """Method that removes non-US institutions from the conflicteds DataFrame."""
+        """Drop rows flagged as non-US institutions, then drop the
+        ``non_us`` column.
 
+        The ``non_us`` column is a deans-style flag — child apps without
+        this column simply skip the filter. The ``non_us`` semantic is:
+        non-null value = "this row is at a non-US institution, drop it";
+        null value = "this row is at a US institution, keep it".
+        """
+        if "non_us" not in self.conflicts.columns:
+            return self.conflicts
         self.conflicts = self.conflicts[self.conflicts["non_us"].isna()]
-
         self.conflicts = self.conflicts.drop(columns=["non_us"])
-
         return self.conflicts
 
     def remove_non_md_do(self) -> pd.DataFrame:

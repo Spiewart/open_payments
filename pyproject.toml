@@ -38,6 +38,14 @@ dev = [
 
 [project.urls]
 
+[tool.hatch.build.targets.wheel]
+# Explicitly include the py.typed marker so downstream type-checkers (mypy,
+# pyright) treat the package as typed when installed. Hatchling's default
+# wheel build already picks up files under `src/open_payments/`, but the
+# explicit force-include guards against future packaging-config drift.
+packages = ["src/open_payments"]
+force-include = { "src/open_payments/py.typed" = "open_payments/py.typed" }
+
 [project.scripts]
 unique_credentials = "open_payments.credentials:unique_credentials"
 unique_specialties = "open_payments.specialtys:unique_specialties"

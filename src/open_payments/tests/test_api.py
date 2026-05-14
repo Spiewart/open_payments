@@ -83,6 +83,33 @@ def test__api_auto_parses_raw_input(cms_data_dir, fixture_years):
     assert result.n_unique >= 2
 
 
+def test__api_minimal_columns_input_matches_readme_example(cms_data_dir, fixture_years):
+    """Pins the README example: a 4-column DataFrame (name / credential /
+    specialtys / citystates) — no deans-style provenance columns (article,
+    rank, entity, non_us) — must run end-to-end through the orchestrator.
+
+    The Conflicteds orchestrator was historically tied to the deans schema
+    and would KeyError on `non_us` and on the article/rank/entity drop.
+    Section 8 made these drops tolerant of missing columns so the library
+    works for non-deans child apps too.
+    """
+    settings = Settings(data_dir=cms_data_dir, years=fixture_years)
+    minimal = pd.DataFrame(
+        [
+            {
+                "name": "Jane M. Brown, MD",
+                "credential": "Physician (MD or DO)",
+                "specialtys": "Family Medicine",
+                "citystates": "Boston, MA",
+            }
+        ]
+    )
+    result = find_payments_for_conflicted_providers(conflicteds=minimal, settings=settings)
+    # Should match CMS profile 201 (Jane Marie Brown in fixture).
+    assert result.n_unique == 1
+    assert result.unique_ids.iloc[0]["profile_id"] == 201
+
+
 def test__api_accepts_pre_parsed_input(cms_data_dir, fixture_years):
     """A DataFrame already matching the canonical schema is passed through
     untouched (no re-parsing)."""
