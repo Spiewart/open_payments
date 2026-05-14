@@ -173,17 +173,66 @@ Tests:
 
 ---
 
-## Research Principal Investigator block handling (planned Section 5.9)
+## Section 5.9 — Research Principal Investigator block handling — DONE
 
-**Problem:** Research CSVs have **252 columns** including up to 5 Principal
-Investigator blocks (`Principal_Investigator_1..5_NPI`, `_*_Name`, `_*_Specialty`,
-etc.). The current matcher only scans `Covered_Recipient_*` for research
-payments, so any conflicted who is a PI (not the Covered_Recipient) silently
-goes unmatched.
+Research CSVs publish up to 5 ``Principal_Investigator_N_*`` column blocks
+per row in addition to the ``Covered_Recipient_*`` block. The matcher
+historically only scanned Covered_Recipient, silently missing every
+conflicted who's a PI but not the principal recipient. For ABIM
+(internal-medicine board certification) this was the dominant gap on
+research payments.
 
-**Defer until:** NPI lands (done), Name_Suffix lands (done), selection-layer
-extraction lands. Vectorization (Section 6) is also a prerequisite —
-per-row 6× scanning of the existing `.iterrows()` loop is untenable.
+**Implementation — explode-on-read** (in
+[src/open_payments/research_pi.py](src/open_payments/research_pi.py)):
+
+1. Each filter mixin's ``research_columns`` extends with
+   ``Principal_Investigator_N_*`` CMS columns via
+   ``pi_block_cms_columns_for_dtype_dict(general_columns)``.
+2. ``ReadPayments.update_csv_kwargs`` now intersects ``usecols`` with the
+   actual CSV header so older CMS years (without PI blocks) and the
+   general/ownership CSVs (no PI blocks at all) load cleanly.
+3. ``ReadPayments.filter_payment_chunk`` calls
+   ``explode_research_pi_blocks(chunk)`` for the research payment class
+   after the standard MD/DO + profile_id filters.
+4. ``explode_research_pi_blocks`` transforms each input row into 1 + N
+   sub-rows (1 Covered_Recipient + N populated PI slots). PI block CMS
+   columns are renamed to their Covered_Recipient equivalents so all
+   downstream code (rename, list-column builders, the matcher itself,
+   the cross-merge from Section 6) sees a uniform shape with no PI
+   awareness.
+5. A ``person_slot`` provenance column is added to every research row:
+   ``"covered_recipient"`` or ``"pi_1"`` through ``"pi_5"``. Carries
+   through into ``unique_ids`` so analysts know which slot fired.
+
+Verified on real CMS 2023 research data: explodes cleanly, person_slot
+distribution matches expectation (CR + sparse PI blocks).
+
+**Tests** in [test_research_pi.py](src/open_payments/tests/test_research_pi.py)
+— 18 new tests:
+- Helper-level: column-expansion math (5 slots × N CR cols), suffix
+  asymmetry handling (Recipient_City vs Principal_Investigator_N_City),
+  unmapped-column tolerance.
+- Explode-level: empty / partially-populated / fully-populated PI blocks,
+  slot-prefixed renames produce uniform CR column names, unpopulated
+  slots dropped.
+- End-to-end: synthetic research fixture extended with a Trial Coordinator
+  CR + Sarah Kim (PI_1) + Raj Patel (PI_2). Three end-to-end scenarios
+  pin that:
+  - Sarah Kim matches profile_id=801 via the ``pi_1`` slot.
+  - Raj Patel matches profile_id=802 via the ``pi_2`` slot.
+  - Adams (CR-only) still matches profile_id=101 via ``covered_recipient``
+    (no regression).
+  - Both PIs matchable simultaneously when both are in the conflicteds list.
+- Edge: missing PI columns in CSVs (general/ownership shape) handled
+  gracefully via the tolerant usecols filter.
+
+521 total tests passing; ruff clean.
+
+**Architectural note** — the explode is BEFORE the matcher's cross-merge
+(Section 6), so the cross-merge sees the long-form per-slot frame and
+benefits from vectorization across all (payment, person_slot) pairs.
+This is what made full Section 6 vectorization a prerequisite per the
+original plan.
 
 ---
 

@@ -7,6 +7,10 @@ import pandas as pd
 
 from .config import Settings
 from .physicians_only import PhysicianFilter
+from .research_pi import (
+    explode_research_pi_blocks,
+    pi_block_cms_columns_for_dtype_dict,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -110,13 +114,15 @@ class ReadPayments:
 
         logging.info(f"Reading {payment_class} payments...")
 
-        csv_kwargs = {"nrows": self.nrows} if self.nrows is not None else {"chunksize": 50000}
-
-        csv_kwargs = self.update_csv_kwargs(csv_kwargs, payment_class)
-
         for year in self.years:
             payment_csv = self.get_payment_csv_path(payment_class=payment_class, year=year)
             csv_path = f"{self.payments_folder}/{payment_csv}"
+
+            # Build per-CSV kwargs so usecols can be filtered to columns
+            # actually present in this CSV's header (Section 5.9 — older
+            # CMS publications lack PI block columns).
+            csv_kwargs = {"nrows": self.nrows} if self.nrows is not None else {"chunksize": 50000}
+            csv_kwargs = self.update_csv_kwargs(csv_kwargs, payment_class, csv_path=csv_path)
 
             payments = (
                 pd.concat(
@@ -192,6 +198,17 @@ class ReadPayments:
         silently. Some CMS publications (2024 general) have a small fraction
         of such rows. Now warns with the dropped-row count so a sudden spike
         is visible.
+
+        Section 5.9: for research chunks, after the standard
+        Covered_Recipient profile_id filter and MD/DO filter, the chunk is
+        exploded into per-person-slot rows (1 Covered_Recipient + up to 5
+        Principal_Investigator blocks). Downstream consumers see a uniform
+        Covered_Recipient_* column shape regardless of which slot a row
+        came from. See ``research_pi.explode_research_pi_blocks`` for the
+        transform semantics. The MD/DO filter runs BEFORE the explode (so
+        a research row with a non-MD Covered_Recipient but an MD PI is
+        currently dropped; refining that to "explode then filter" is a
+        follow-up if real data shows it matters).
         """
         profile_id_col = (
             "Physician_Profile_ID"
@@ -212,6 +229,9 @@ class ReadPayments:
 
         if self.MD_DO_only:
             payment_chunk = PhysicianFilter(payment_chunk).filter()
+
+        if payment_class == "research":
+            payment_chunk = explode_research_pi_blocks(payment_chunk)
 
         return payment_chunk
 
@@ -246,15 +266,40 @@ class ReadPayments:
         self,
         csv_kwargs: dict[str, Union[list[str], dict[str, Union[str, int]]]],
         payment_class: Union[Literal["general", "ownership", "research"]],
+        csv_path: Union[str, None] = None,
     ) -> dict[str, Union[list[str], dict[str, Union[str, int]]]]:
+        """Build the kwargs for ``pd.read_csv``.
 
+        Section 5.9: if ``csv_path`` is supplied, filter ``usecols`` to columns
+        actually present in the CSV header. This is necessary for research
+        CSVs because the column expansion now includes PI block columns
+        (``Principal_Investigator_N_*``) — older CMS publications and the
+        synthetic test fixture lack those, and pandas raises
+        ``ValueError: Usecols do not match columns`` when any requested
+        column is missing.
+
+        The filter step also drops PI columns from the dtype dict so pandas
+        doesn't complain about dtype overrides for nonexistent columns.
+        """
         columns: dict[str, tuple[str, Union[type[str], str]]] = getattr(
             self,
             f"{payment_class}_columns",
         )
 
-        csv_kwargs["usecols"] = columns.keys()
-        csv_kwargs["dtype"] = {key: value[1] for key, value in columns.items()}
+        present_cols = set(columns.keys())
+        if csv_path is not None:
+            try:
+                header = pd.read_csv(csv_path, nrows=0).columns.tolist()
+                present_cols = present_cols & set(header)
+            except (FileNotFoundError, pd.errors.EmptyDataError):
+                # Fall through with the unfiltered set; downstream read_csv
+                # will raise the appropriate error.
+                pass
+
+        csv_kwargs["usecols"] = list(present_cols)
+        csv_kwargs["dtype"] = {
+            key: value[1] for key, value in columns.items() if key in present_cols
+        }
 
         return csv_kwargs
 
@@ -280,8 +325,14 @@ class ReadPayments:
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
-
-        return {**self.general_columns}
+        # Research CSVs use the same Covered_Recipient_* columns as general,
+        # PLUS up to 5 Principal_Investigator_N_* blocks per row. Add the PI
+        # block CMS columns so they're loaded by pd.read_csv; the explode
+        # step in read_payments_csvs renames them to their CR equivalents
+        # so downstream sees a uniform shape.
+        cr_cols = {**self.general_columns}
+        cr_cols.update(pi_block_cms_columns_for_dtype_dict(self.general_columns))
+        return cr_cols
 
     def update_payments(
         self,

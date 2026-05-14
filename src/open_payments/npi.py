@@ -148,14 +148,16 @@ class NPIMixin:
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
+        # Section 5.9: research CSVs have Principal_Investigator_1..5_NPI
+        # columns in addition to Covered_Recipient_NPI. Read all of them;
+        # the explode in read.filter_payment_chunk turns each PI N's NPI
+        # into a row whose canonical `npi` column is that PI's identifier.
+        from .research_pi import pi_block_cms_columns_for_dtype_dict
+
         cols = super().research_columns
-        # TODO(research PI block handling, see TODO.md): research CSVs also
-        # have `Principal_Investigator_1..5_NPI` columns (plus full
-        # name/credential/specialty blocks for each PI). A conflicted who is
-        # a PI on a research payment but not the Covered_Recipient currently
-        # goes silently unmatched. Major refactor; depends on selection-layer
-        # extraction + vectorization first.
-        cols.update({"Covered_Recipient_NPI": ("npi", "Int64")})
+        cr_npi_col = {"Covered_Recipient_NPI": ("npi", "Int64")}
+        cols.update(cr_npi_col)
+        cols.update(pi_block_cms_columns_for_dtype_dict(cr_npi_col))
         return cols
 
 

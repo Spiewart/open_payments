@@ -128,10 +128,12 @@ class SpecialtysMixin:
 
     @property
     def research_columns(self) -> dict[str, tuple[str, Union[type[str], str]]]:
+        # Section 5.9: include Principal_Investigator_N_Specialty_1..6 columns.
+        from .research_pi import pi_block_cms_columns_for_dtype_dict
 
         cols: dict[str, tuple[str, Union[type[str], str]]] = super().research_columns
-
         cols.update(self.general_columns)
+        cols.update(pi_block_cms_columns_for_dtype_dict(self.general_columns))
         return cols
 
 
