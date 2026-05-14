@@ -186,18 +186,36 @@ class PaymentIDsNPIMixin(NPIMixin):
     @classmethod
     def filter_by_npi(cls, payments_x_conflicted: pd.Series) -> FilterOutcome:
         """Returns:
-          - MATCH    — both NPIs non-null and equal
-          - DISAGREE — both NPIs non-null and different (strong negative signal:
-            different providers)
-          - NO_DATA  — either NPI is null (or unparseable)
+          - MATCH    — both NPIs non-null and equal.
+          - DISAGREE — either:
+              (a) both NPIs non-null and different (two different providers
+                  with near-certainty); OR
+              (b) **conflict has NPI but payment row doesn't** — CMS publishes
+                  NPI on ~99.7% of rows, so a missing NPI on the payment side
+                  for a conflicted who has one is anomalous enough to count
+                  as negative evidence. A clean alternative match (one whose
+                  payment row DOES have NPI matching the conflicted) should
+                  be preferred when both are at the same tier.
+          - NO_DATA  — conflict's NPI is missing (we have no NPI to test
+            against), OR either side is unparseable.
 
         NPI is a particularly meaningful DISAGREE: two valid 10-digit NPIs
         that differ identify two different providers with near-certainty.
         """
         payment_npi = payments_x_conflicted.get("npi", None)
         conflict_npi = payments_x_conflicted.get("conflict_npi", None)
-        if pd.isna(payment_npi) or pd.isna(conflict_npi):
+
+        # If we don't have a conflict NPI to test against, no signal in
+        # either direction.
+        if pd.isna(conflict_npi):
             return FilterOutcome.NO_DATA
+
+        # Conflict has NPI but payment row doesn't — asymmetric absence.
+        # Treat as DISAGREE per the rationale above (clean NPI-bearing
+        # alternative wins the same-tier tiebreak in TieredConfidenceSelector).
+        if pd.isna(payment_npi):
+            return FilterOutcome.DISAGREE
+
         try:
             return (
                 FilterOutcome.MATCH

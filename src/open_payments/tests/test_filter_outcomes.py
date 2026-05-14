@@ -41,7 +41,13 @@ from ..specialtys import PaymentIDsSpecialtysMixin, Specialtys
     [
         (1234567890, 1234567890, FilterOutcome.MATCH),
         (1234567890, 9876543210, FilterOutcome.DISAGREE),
-        (pd.NA, 1234567890, FilterOutcome.NO_DATA),
+        # Asymmetric absence: conflict has NPI, payment row doesn't.
+        # CMS publishes NPI on ~99.7% of rows; missing payment-side NPI
+        # for a known-NPI conflicted is anomalous → DISAGREE so the
+        # signal surfaces in negative_filters and loses the same-tier
+        # tiebreak in TieredConfidenceSelector.
+        (pd.NA, 1234567890, FilterOutcome.DISAGREE),
+        # Conflict has no NPI → nothing to test against in either direction.
         (1234567890, pd.NA, FilterOutcome.NO_DATA),
         (pd.NA, pd.NA, FilterOutcome.NO_DATA),
         # Excel-stored-as-float case still produces MATCH via int() coercion.
@@ -550,3 +556,59 @@ def test__apply_all_filters_to_row_handles_empty_row():
     matcher = _StubMatch.__new__(_StubMatch)
     out = matcher.apply_all_filters_to_row(pd.Series(dtype=object))
     assert out.empty
+
+
+# ---------------------------------------------------------------------------
+# NPI asymmetric-absence DISAGREE — Section 5.10 follow-on
+# (conflict has NPI but payment row doesn't → strong negative signal because
+# CMS publishes NPI on ~99.7% of rows)
+# ---------------------------------------------------------------------------
+
+
+def test__filter_by_npi_asymmetric_absence_routes_through_filter_payment():
+    """End-to-end of the asymmetric-absence rule via the filter_payment
+    routing: a row where conflict has NPI but payment NPI is null must
+    accumulate ``PaymentFilters.NPI`` in ``negative_filters`` so the
+    selector can demote it on the same-tier tiebreak."""
+    from ..ids import ConflictedPaymentIDs
+    from ..npi import PaymentIDsNPIMixin
+
+    class _Matcher(ConflictedPaymentIDs, PaymentIDsNPIMixin):
+        pass
+
+    matcher = _Matcher.__new__(_Matcher)
+    row = pd.Series(
+        {
+            "filters": [],
+            "negative_filters": [],
+            "npi": pd.NA,
+            "conflict_npi": 1234567890,
+        }
+    )
+    out = matcher.filter_payment(payments_x_conflicted=row, payment_filter=PaymentFilters.NPI)
+    assert PaymentFilters.NPI in out["negative_filters"]
+    assert PaymentFilters.NPI not in out["filters"]
+
+
+def test__filter_by_npi_no_signal_when_conflict_has_no_npi():
+    """The asymmetric-absence rule is direction-specific: it fires only
+    when conflict has NPI but payment doesn't, NOT when conflict lacks
+    NPI. Without a known conflict NPI we have nothing to test against."""
+    from ..ids import ConflictedPaymentIDs
+    from ..npi import PaymentIDsNPIMixin
+
+    class _Matcher(ConflictedPaymentIDs, PaymentIDsNPIMixin):
+        pass
+
+    matcher = _Matcher.__new__(_Matcher)
+    row = pd.Series(
+        {
+            "filters": [],
+            "negative_filters": [],
+            "npi": 1234567890,
+            "conflict_npi": pd.NA,
+        }
+    )
+    out = matcher.filter_payment(payments_x_conflicted=row, payment_filter=PaymentFilters.NPI)
+    assert PaymentFilters.NPI not in out["negative_filters"]
+    assert PaymentFilters.NPI not in out["filters"]

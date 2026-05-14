@@ -58,6 +58,29 @@ without a pluggable selector, the weight difference can't be expressed.
 
 ---
 
+## NPI asymmetric-absence DISAGREE — DONE (Section 5.8 follow-on)
+
+`filter_by_npi` now treats the case "conflict has NPI but payment row
+doesn't" as DISAGREE rather than NO_DATA. Rationale: CMS publishes NPI
+on ~99.7% of rows, so a missing payment-side NPI for a conflicted who
+has one is a meaningful anomaly. The signal:
+
+- Surfaces in ``negative_filters`` / ``n_negative_filters`` so the
+  analyst sees it at review time alongside other DISAGREE filters.
+- Loses the same-tier tiebreak in ``TieredConfidenceSelector`` — a
+  clean alternative match (one whose payment row DOES have NPI matching
+  the conflicted) wins over the asymmetric-absence row.
+
+The opposite direction (conflict lacks NPI, payment has it) stays
+NO_DATA — without a known conflict NPI we have nothing to test against.
+
+Tests in [test_npi.py](src/open_payments/tests/test_npi.py) and
+[test_filter_outcomes.py](src/open_payments/tests/test_filter_outcomes.py)
+pin both the per-row outcome and the routing through filter_payment
+into negative_filters. 523 total tests passing.
+
+---
+
 ## Negative filter assessment (Section 5.8) — DONE
 
 Filter return type changed from `bool` to tri-state

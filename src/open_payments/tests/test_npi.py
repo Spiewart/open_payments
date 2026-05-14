@@ -131,16 +131,23 @@ def test__filter_by_npi_disagree_on_unequal():
     assert PaymentIDsNPIMixin.filter_by_npi(_row(1234567890, 9876543210)) == FilterOutcome.DISAGREE
 
 
-def test__filter_by_npi_no_data_on_null_payment():
-    assert PaymentIDsNPIMixin.filter_by_npi(_row(pd.NA, 1234567890)) == FilterOutcome.NO_DATA
+def test__filter_by_npi_disagree_on_null_payment_with_known_conflict_npi():
+    # Asymmetric absence: conflict has NPI but payment row doesn't. CMS
+    # publishes NPI on ~99.7% of rows, so a missing payment-side NPI for
+    # a conflicted who has one is anomalous enough to count as negative
+    # evidence — surfaces in negative_filters / n_negative_filters and
+    # loses the same-tier tiebreak in TieredConfidenceSelector.
+    assert PaymentIDsNPIMixin.filter_by_npi(_row(pd.NA, 1234567890)) == FilterOutcome.DISAGREE
 
 
 def test__filter_by_npi_no_data_on_null_conflict():
+    # Conflict has no NPI → we have nothing to test against. Payment row
+    # having an NPI is not a signal in either direction.
     assert PaymentIDsNPIMixin.filter_by_npi(_row(1234567890, pd.NA)) == FilterOutcome.NO_DATA
 
 
 def test__filter_by_npi_no_data_on_both_null():
-    # Two missing NPIs are NO_DATA, not a match.
+    # Two missing NPIs are NO_DATA — no signal in either direction.
     assert PaymentIDsNPIMixin.filter_by_npi(_row(pd.NA, pd.NA)) == FilterOutcome.NO_DATA
 
 
