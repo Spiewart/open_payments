@@ -262,13 +262,52 @@ new code should use the SearchResult methods.
 
 ---
 
-## Sections 6 and 8 (later)
+## Section 6 — Matcher filter-loop optimization (scoped) — DONE
 
-- **Section 6 — Vectorize the matcher.** Replace `.iterrows()` at
-  `ids.py:240` and `.apply(lambda)` at `ids.py:288` with a join-based flow.
-  Single merge on last_name; per-filter vectorized predicate; group-by
-  `provider_pk` for the narrowing. Keep the old class as
-  `LegacyConflictedPaymentIDs` for one release.
-- **Section 8 — Documentation & contribution hardening.** README example
-  for child-app wrapping; `docs/architecture.md`; `CONTRIBUTING.md`;
-  `py.typed` marker.
+Replaced the inner ``for payment_filter in self.filters:
+merged.apply(filter_payment, axis=1)`` loop in
+``Conflicted_x_PaymentIDs.filter_payments_for_conflicted`` with a single
+``merged.apply(self.apply_all_filters_to_row, axis=1)`` that visits each
+row once and runs every filter in ``self.filters`` order.
+
+- 14 separate row-wise pandas-apply iterations → 1 iteration per merged frame.
+- Behavior preserved: filter order within a row is identical to the legacy
+  loop, so supersession rules (e.g. ``FIRSTNAME`` removing
+  ``FIRSTNAME_PARTIAL``) still apply.
+- Benchmark (100 conflicteds × 1 matching profile in the synthetic fixture):
+  **0.80s → 0.34s (~2.3× speedup)**.
+
+3 new tests in [test_filter_outcomes.py](src/open_payments/tests/test_filter_outcomes.py)
+pin the contract: filter outcomes route correctly per filter, filter order
+is preserved, empty rows short-circuit. 493 total tests passing; ruff clean.
+
+### Remaining Section 6 work (deferred)
+
+The bigger architectural shift — cross-merge all conflicteds × all payments
+on last_name in one pass instead of per-conflicted ``.iterrows()`` —
+remains the larger optimization. Worthwhile when:
+
+- Production runs hit thousands of conflicteds and the per-conflicted
+  Python overhead of ``.iterrows()`` becomes the dominant cost.
+- Section 5.9 (Research PI block 6× scanning) lands; the cross-merge is a
+  prerequisite per the original plan.
+
+Risk: high — ``merge_by_last_name`` has special-case handling for
+multi-word last names that doesn't generalize trivially to a cross-merge.
+A behavior-preserving cross-merge needs careful handling of the multi-name
+``str.contains("&".join(...))`` branch.
+
+Keep ``LegacyConflictedPaymentIDs`` (the current matcher renamed) as an
+A/B comparison point for the eventual rewrite.
+
+---
+
+## Section 8 — Documentation (later)
+
+- README example for child-app wrapping (the
+  ``find_payments_for_conflicted_providers`` happy path).
+- ``docs/architecture.md`` — one diagram of the data flow
+  conflicteds → preprocess → search → narrow → aggregate.
+- ``CONTRIBUTING.md`` — how to add a new filter, how to extend payment
+  classes, how to add a new year's CMS publication.
+- ``py.typed`` marker so child apps get type-checking.

@@ -226,6 +226,33 @@ class Conflicted_x_PaymentIDs:
 
         return payments_x_conflicted
 
+    def apply_all_filters_to_row(
+        self,
+        payments_x_conflicted: pd.Series,
+    ) -> pd.Series:
+        """Apply every filter in ``self.filters`` to a single row in one pass.
+
+        Section 6 optimization: the legacy implementation called
+        ``merged.apply(filter_payment, axis=1)`` once per filter, doing
+        N_filters (~14) separate row-wise iterations over the merged
+        frame. This method collapses that into a single
+        ``merged.apply(apply_all_filters_to_row, axis=1)`` call so each
+        row is visited once and all filters fire against it in order.
+
+        Behavior is identical: filters are applied in ``self.filters``
+        order, and supersession rules (e.g. FIRSTNAME removing
+        FIRSTNAME_PARTIAL) depend only on filter order, not on
+        cross-row state.
+        """
+        if payments_x_conflicted.empty:
+            return payments_x_conflicted
+        for payment_filter in self.filters:
+            payments_x_conflicted = self.filter_payment(
+                payments_x_conflicted=payments_x_conflicted,
+                payment_filter=payment_filter,
+            )
+        return payments_x_conflicted
+
 
 class ConflictedPaymentIDs(
     IDsMixin,
@@ -335,14 +362,11 @@ class ConflictedPaymentIDs(
 
         merged = self.convert_merged_dtypes(merged)
 
-        for payment_filter in self.filters:
-            merged = merged.apply(
-                lambda x, pf=payment_filter: self.filter_payment(
-                    payments_x_conflicted=x,
-                    payment_filter=pf,
-                ),
-                axis=1,
-            )
+        # Section 6 optimization: single .apply over rows applying every
+        # filter in `self.filters` order, instead of N_filters separate
+        # .apply(axis=1) passes. Same behavior, ~14x fewer pandas-internal
+        # row iterations.
+        merged = merged.apply(self.apply_all_filters_to_row, axis=1)
 
         self.process_filtered_payments_x_conflicteds(
             payments_x_conflicted=merged,

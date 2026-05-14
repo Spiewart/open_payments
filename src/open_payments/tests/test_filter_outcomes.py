@@ -476,3 +476,77 @@ def test__filter_payment_routes_no_data_to_neither():
     )
     assert PaymentFilters.CREDENTIAL not in out["filters"]
     assert PaymentFilters.CREDENTIAL not in out["negative_filters"]
+
+
+# ---------------------------------------------------------------------------
+# apply_all_filters_to_row — Section 6 single-pass optimization
+# ---------------------------------------------------------------------------
+
+
+def test__apply_all_filters_to_row_routes_each_filter_through_filter_payment():
+    """Section 6: replace 14 separate apply(axis=1) calls with one pass that
+    runs every filter against a row. Behavior must be identical to
+    sequential per-filter routing."""
+
+    class _MultiStub(ConflictedPaymentIDs):
+        # Stub two filter_by_* methods that return different outcomes.
+        @property
+        def filters(self):
+            return [PaymentFilters.CREDENTIAL, PaymentFilters.NPI, PaymentFilters.FIRSTNAME]
+
+        def filter_by_credential(self, payments_x_conflicted):
+            return FilterOutcome.MATCH
+
+        def filter_by_npi(self, payments_x_conflicted):
+            return FilterOutcome.DISAGREE
+
+        def filter_by_firstname(self, payments_x_conflicted):
+            return FilterOutcome.NO_DATA
+
+    matcher = _MultiStub.__new__(_MultiStub)
+    row = pd.Series({"filters": [], "negative_filters": []})
+    out = matcher.apply_all_filters_to_row(row)
+    assert PaymentFilters.CREDENTIAL in out["filters"]
+    assert PaymentFilters.NPI in out["negative_filters"]
+    assert PaymentFilters.FIRSTNAME not in out["filters"]
+    assert PaymentFilters.FIRSTNAME not in out["negative_filters"]
+
+
+def test__apply_all_filters_to_row_preserves_filter_order():
+    """Filter order matters because some filters supersede others (e.g.
+    FIRSTNAME removing FIRSTNAME_PARTIAL from a row's filters list).
+    apply_all_filters_to_row must iterate self.filters in order."""
+
+    call_order: list[PaymentFilters] = []
+
+    class _OrderStub(ConflictedPaymentIDs):
+        @property
+        def filters(self):
+            return [PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.NPI]
+
+        def filter_by_lastname(self, payments_x_conflicted):
+            call_order.append(PaymentFilters.LASTNAME)
+            return FilterOutcome.MATCH
+
+        def filter_by_firstname(self, payments_x_conflicted):
+            call_order.append(PaymentFilters.FIRSTNAME)
+            return FilterOutcome.MATCH
+
+        def filter_by_npi(self, payments_x_conflicted):
+            call_order.append(PaymentFilters.NPI)
+            return FilterOutcome.MATCH
+
+    matcher = _OrderStub.__new__(_OrderStub)
+    row = pd.Series({"filters": [], "negative_filters": []})
+    matcher.apply_all_filters_to_row(row)
+    assert call_order == [
+        PaymentFilters.LASTNAME,
+        PaymentFilters.FIRSTNAME,
+        PaymentFilters.NPI,
+    ]
+
+
+def test__apply_all_filters_to_row_handles_empty_row():
+    matcher = _StubMatch.__new__(_StubMatch)
+    out = matcher.apply_all_filters_to_row(pd.Series(dtype=object))
+    assert out.empty
