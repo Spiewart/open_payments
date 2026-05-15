@@ -19,10 +19,23 @@ matcher access), import from the submodules:
 - ``open_payments.choices`` — PaymentFilters / Unmatcheds / Credentials / States / FilterOutcome enums
 - ``open_payments.schemas`` — input/output contracts
 
+Post-match analysis and review (study-neutral; child apps wrap these with
+their study-specific entity name and column layout):
+
+- ``open_payments.audit`` — match-result statistics (filter prevalence,
+  collisions, tier summary)
+- ``open_payments.suspicion`` — match-confidence suspicion classification
+  for NPI and non-NPI matches
+- ``open_payments.excel`` — Excel formatting primitives (color palette,
+  section styling, data validation, hyperlinks)
+- ``open_payments.review`` — reviewer-facing workbook generator + apply
+  workflow, parameterized by :class:`ReviewConfig`
+
 Everything else (helpers, payment_types, individual filter modules) is
 implementation detail.
 """
 
+from . import audit, excel, review, suspicion
 from .api import find_payments_for_conflicted_providers
 from .choices import FilterOutcome, PaymentFilters, Unmatcheds
 from .config import Settings
@@ -35,6 +48,7 @@ from .institution_locator import (
     NPPESBackend,
     flatten_to_citystates,
 )
+from .review import ReviewConfig, SourceField
 from .schemas import (
     OPTIONAL_CONFLICTED_COLUMNS,
     REQUIRED_CONFLICTED_COLUMNS,
@@ -81,4 +95,12 @@ __all__ = [
     "NPPESBackend",
     "ManualReviewBackend",
     "ClaudeAPIBackend",
+    # Post-match analysis submodules
+    "audit",
+    "suspicion",
+    "excel",
+    "review",
+    # Review config types (common to surface at top level)
+    "ReviewConfig",
+    "SourceField",
 ]
