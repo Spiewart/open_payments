@@ -605,8 +605,21 @@ def test__tiered_selector_custom_tier_rules_via_class_var():
     assert result.match.iloc[0]["profile_id"] == 101  # the CREDENTIAL_ONLY row wins
 
 
-def test__tiered_selector_default_fallback_is_default_match_selector():
+def test__tiered_selector_default_fallback_is_ties_are_unmatched():
+    """The default fallback is precision-favored: when tier + negative-filter
+    tiebreak can't disambiguate, surface tied candidates as unmatched_options
+    instead of letting the recall-favored cascade silently narrow further.
+
+    Studies wanting the legacy recall-favored behavior can opt in via
+    ``TieredConfidenceSelector(fallback=DefaultMatchSelector())``.
+    """
     selector = TieredConfidenceSelector()
+    assert isinstance(selector.fallback, TiesAreUnmatchedSelector)
+
+
+def test__tiered_selector_accepts_explicit_default_match_selector_fallback():
+    """Legacy recall-favored cascade is still available via explicit opt-in."""
+    selector = TieredConfidenceSelector(fallback=DefaultMatchSelector())
     assert isinstance(selector.fallback, DefaultMatchSelector)
 
 

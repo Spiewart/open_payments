@@ -553,7 +553,14 @@ class TieredConfidenceSelector(MatchSelector):
        should win.
     4. If 1 row → unique match. ``SelectorResult`` carries
        ``confidence_tier`` so the analyst can sort outputs by tier.
-    5. If still tied → call ``self.fallback.select(...)``.
+    5. If still tied → call ``self.fallback.select(...)``. The default
+       fallback is :class:`TiesAreUnmatchedSelector`, which surfaces the
+       tied candidates as ``unmatched_options`` for human reconciliation
+       rather than narrowing further by filter-set membership. Picking one
+       row over another when the tier system can't differentiate would
+       contradict the precision-favored intent of this selector. Studies
+       that want the old recall-favored behavior can opt in by passing
+       ``fallback=DefaultMatchSelector()`` to the constructor.
     6. If the best-tier rank is worse than ``MIN_ACCEPTABLE_TIER_RANK``,
        surface as ``unmatched_options`` (the matcher couldn't reach an
        acceptable confidence level).
@@ -575,6 +582,10 @@ class TieredConfidenceSelector(MatchSelector):
 
         class StrictTieredSelector(TieredConfidenceSelector):
             MIN_ACCEPTABLE_TIER_RANK = 2  # reject rank >= LOW_LASTNAME_PLUS_ONE
+
+    Example — opt back into the legacy recall-favored cascade::
+
+        selector = TieredConfidenceSelector(fallback=DefaultMatchSelector())
     """
 
     TIER_RULES: ClassVar[list[TierRule]] = DEFAULT_TIER_RULES
@@ -582,7 +593,15 @@ class TieredConfidenceSelector(MatchSelector):
     MIN_ACCEPTABLE_TIER_RANK: ClassVar[int] = len(DEFAULT_TIER_RULES) + 1
 
     def __init__(self, fallback: MatchSelector | None = None):
-        self.fallback: MatchSelector = fallback if fallback is not None else DefaultMatchSelector()
+        # Default to TiesAreUnmatchedSelector (precision-favored): when the
+        # tier-aware logic + negative-filter tiebreaker can't pick a unique
+        # winner, surface the tied candidates as unmatched_options for human
+        # review. The legacy recall-favored behavior — silent narrowing via
+        # the DefaultMatchSelector cascade — was inherited from the
+        # pre-renovation in-line code and contradicts the precision intent
+        # of this selector. Pass `fallback=DefaultMatchSelector()` explicitly
+        # to restore the old behavior.
+        self.fallback: MatchSelector = fallback if fallback is not None else TiesAreUnmatchedSelector()
 
     def _tier_rank(self, tier: str) -> int:
         """Rank lookup — 0 is best, fallback is last."""
