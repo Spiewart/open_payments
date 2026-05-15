@@ -31,6 +31,12 @@ class PaymentFilters(StrEnum):
     can be identified from the list of unique OpenPayment IDs."""
 
     LASTNAME = "LASTNAME"
+    # Fuzzy 1-edit lastname match (insertion/deletion/substitution). Tagged
+    # separately from LASTNAME so the SELECTION layer can treat fuzzy hits
+    # as lower-confidence than exact hits. Fires from the third fallback
+    # path in `merge_by_last_name` when an exact match and a contains-match
+    # both return empty.
+    LASTNAME_FUZZY = "LASTNAME_FUZZY"
     FIRSTNAME = "FIRSTNAME"
     FIRSTNAME_PARTIAL = "FIRSTNAME_PARTIAL"  # Matches first name with a partial match
     FIRST_MIDDLE_NAME = "FIRST_MIDDLE_NAME"  # Matches first name and middle name

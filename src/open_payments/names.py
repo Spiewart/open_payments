@@ -345,11 +345,18 @@ class PaymentIDsNamesMixin(NamesMixin):
         # nothing — typically the bottom ~5-10% of providers per run.
         # Downstream filters (firstname, citystates, credentials) disambiguate
         # the additional false-positive candidates this surfaces.
+        #
+        # Hits from this path are tagged `LASTNAME_FUZZY` (not `LASTNAME`)
+        # so the SELECTION layer can treat them as lower-confidence than
+        # exact-lastname hits — fuzzy matches need stronger corroboration
+        # from other filters (firstname, citystates, credentials) to win.
+        fuzzy_match = False
         if merged_payments.empty:
             fuzzy_regex = one_edit_regex_alts(conflicted["last_name"])
             merged_payments = payments[
                 payments["last_name"].str.fullmatch(fuzzy_regex, case=False, na=False)
             ]
+            fuzzy_match = not merged_payments.empty
 
         if merged_payments.empty:
             return merged_payments
@@ -367,7 +374,10 @@ class PaymentIDsNamesMixin(NamesMixin):
             axis=1,
         )
 
-        merged.insert(0, "filters", [[PaymentFilters.LASTNAME]] * len(merged))
+        lastname_tag = (
+            PaymentFilters.LASTNAME_FUZZY if fuzzy_match else PaymentFilters.LASTNAME
+        )
+        merged.insert(0, "filters", [[lastname_tag]] * len(merged))
         # Section 5.8: parallel negative_filters column populated by
         # filter_by_* methods that return FilterOutcome.DISAGREE.
         merged.insert(1, "negative_filters", [[] for _ in range(len(merged))])

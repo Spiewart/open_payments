@@ -397,6 +397,14 @@ TIER_MEDIUM_NAME_PARTIAL = "MEDIUM_NAME_PARTIAL"
 TIER_LOW_LASTNAME_PLUS_ONE = "LOW_LASTNAME_PLUS_ONE"
 TIER_LOW_NAME_ONLY = "LOW_NAME_ONLY"
 TIER_VERY_LOW_LASTNAME_BARE = "VERY_LOW_LASTNAME_BARE"
+# Fuzzy 1-edit lastname match (regardless of corroborating firstname /
+# disambiguators). Sits below VERY_LOW_LASTNAME_BARE: a row whose
+# lastname only matches via 1-edit Levenshtein is less certain than a
+# row with an exact lastname match — even if the fuzzy row also has
+# firstname + citystate, the underlying name signal is weaker. NPI
+# matches still win regardless of lastname fuzziness (they land in
+# HIGH_NPI by virtue of NPI being a unique identifier).
+TIER_VERY_LOW_LASTNAME_FUZZY = "VERY_LOW_LASTNAME_FUZZY"
 TIER_VERY_LOW_OTHER = "VERY_LOW_OTHER"
 
 
@@ -504,6 +512,17 @@ def _is_lastname_bare(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
     return PaymentFilters.LASTNAME in f and n_strong == 0
 
 
+def _is_lastname_fuzzy(f: set[PaymentFilters], n: set[PaymentFilters]) -> bool:
+    """VERY_LOW_LASTNAME_FUZZY: lastname matched only via 1-edit fuzzy
+    fallback. Captures every fuzzy hit that didn't already land in HIGH_NPI
+    — including fuzzy + firstname + citystate. Rationale: the name signal
+    is intrinsically weaker than an exact match, and grouping all fuzzy
+    hits at one low-confidence tier lets the analyst review them as a
+    distinct bucket. Within-tier ranking by ``n_filters`` still rewards
+    fuzzy rows that carry more corroboration."""
+    return PaymentFilters.LASTNAME_FUZZY in f
+
+
 # Default tier rules — positive-signal-only, ported verbatim from deans's
 # ``match_confidence.py``. Negative-signal information is intentionally
 # preserved on a parallel ``negative_filters`` / ``n_negative_filters``
@@ -518,6 +537,7 @@ DEFAULT_TIER_RULES: list[TierRule] = [
     (TIER_LOW_LASTNAME_PLUS_ONE, _is_lastname_plus_one),
     (TIER_LOW_NAME_ONLY, _is_name_only),
     (TIER_VERY_LOW_LASTNAME_BARE, _is_lastname_bare),
+    (TIER_VERY_LOW_LASTNAME_FUZZY, _is_lastname_fuzzy),
 ]
 DEFAULT_FALLBACK_TIER = TIER_VERY_LOW_OTHER
 

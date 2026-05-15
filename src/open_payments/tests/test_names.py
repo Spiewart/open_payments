@@ -280,6 +280,7 @@ import re as _re
 
 import pandas as _pd
 
+from open_payments.choices import PaymentFilters
 from open_payments.names import one_edit_regex_alts, PaymentIDsNamesMixin
 
 
@@ -362,3 +363,34 @@ class TestMergeByLastNameFuzzy:
         merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
         # Exact match returns just SMITH (not the fuzzy SMYTH match).
         assert set(merged["last_name"]) == {"SMITH"}
+
+    # --- LASTNAME vs LASTNAME_FUZZY tagging ------------------------------
+    # The SELECTION layer demotes fuzzy hits; the filter tag is the signal
+    # that drives that demotion. These tests pin the tagging contract.
+
+    def test_fuzzy_path_tags_filters_lastname_fuzzy(self):
+        # Fuzzy hit → row's `filters` column carries LASTNAME_FUZZY only.
+        # Critically NOT LASTNAME — the SELECTION-layer tier predicates
+        # check `LASTNAME in filters` to land a row in the exact-lastname
+        # tiers, so accidentally co-tagging would un-demote the fuzzy row.
+        payments = self._payments(["SMYTH"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert merged.iloc[0]["filters"] == [PaymentFilters.LASTNAME_FUZZY]
+        assert PaymentFilters.LASTNAME not in merged.iloc[0]["filters"]
+
+    def test_exact_path_tags_filters_lastname(self):
+        # Exact hit → unchanged behavior: LASTNAME tag.
+        payments = self._payments(["SMITH"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert merged.iloc[0]["filters"] == [PaymentFilters.LASTNAME]
+
+    def test_token_overlap_path_tags_filters_lastname(self):
+        # Token-overlap (compound surname) path is treated as exact-equivalent:
+        # tag stays LASTNAME because the conflicted token literally appears
+        # in the payments last_name (just bundled with another token).
+        payments = self._payments(["SMITH JONES"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert merged.iloc[0]["filters"] == [PaymentFilters.LASTNAME]
