@@ -26,6 +26,8 @@ implementation detail.
 from .api import find_payments_for_conflicted_providers
 from .choices import FilterOutcome, PaymentFilters, Unmatcheds
 from .config import Settings
+from .entity_parser import EntityParser
+from .institution_locator import InstitutionLocator
 from .schemas import (
     OPTIONAL_CONFLICTED_COLUMNS,
     REQUIRED_CONFLICTED_COLUMNS,
@@ -64,4 +66,7 @@ __all__ = [
     "PaymentFilters",
     "FilterOutcome",
     "Unmatcheds",
+    # Shared utilities (used by child apps post-match)
+    "EntityParser",
+    "InstitutionLocator",
 ]
