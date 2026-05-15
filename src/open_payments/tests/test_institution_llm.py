@@ -95,6 +95,59 @@ class TestMissHandling:
         assert candidates[0].source == "miss"
 
 
+class TestPermanentErrors:
+    """Permanent failures (auth/permission/bad-request) must NOT be retried —
+    they waste API budget and clock time on a known-bad config."""
+
+    def test_authentication_error_fails_fast_no_retry(self):
+        mock_client = MagicMock()
+        auth_error = type("AuthenticationError", (Exception,), {})("invalid key")
+        mock_client.messages.create.side_effect = auth_error
+        backend = ClaudeAPIBackend(
+            api_key="test",
+            client=mock_client,
+            max_retries=3,
+            retry_backoff_s=0.0,
+        )
+        # locate() catches the exception and returns a miss — but only
+        # ONE API call is made (no retry).
+        candidates = backend.locate("Cleveland Clinic")
+        assert candidates[0].source == "miss"
+        assert mock_client.messages.create.call_count == 1
+
+    def test_permission_denied_error_fails_fast(self):
+        mock_client = MagicMock()
+        err = type("PermissionDeniedError", (Exception,), {})("no access")
+        mock_client.messages.create.side_effect = err
+        backend = ClaudeAPIBackend(
+            api_key="test", client=mock_client, max_retries=3, retry_backoff_s=0.0
+        )
+        backend.locate("Cleveland Clinic")
+        assert mock_client.messages.create.call_count == 1
+
+    def test_bad_request_error_fails_fast(self):
+        mock_client = MagicMock()
+        err = type("BadRequestError", (Exception,), {})("malformed")
+        mock_client.messages.create.side_effect = err
+        backend = ClaudeAPIBackend(
+            api_key="test", client=mock_client, max_retries=3, retry_backoff_s=0.0
+        )
+        backend.locate("Cleveland Clinic")
+        assert mock_client.messages.create.call_count == 1
+
+    def test_generic_runtime_error_still_retries(self):
+        """The fast-fail logic only applies to NAMED permanent SDK
+        exceptions. Generic transient failures (network blips) should
+        still retry through max_retries."""
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = RuntimeError("transient")
+        backend = ClaudeAPIBackend(
+            api_key="test", client=mock_client, max_retries=3, retry_backoff_s=0.0
+        )
+        backend.locate("Cleveland Clinic")
+        assert mock_client.messages.create.call_count == 3
+
+
 class TestRetry:
     def test_transient_failure_retries_then_succeeds(self):
         # First two calls raise, third returns valid JSON.

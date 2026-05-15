@@ -44,6 +44,27 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
+
+# Anthropic SDK exception class names that indicate a permanent failure —
+# the request will never succeed without a config change (bad key, bad
+# request shape, etc.). We match on class name rather than isinstance() so
+# this module doesn't have to import anthropic when the [llm] extra isn't
+# installed.
+_PERMANENT_ANTHROPIC_ERROR_CLASSES = frozenset(
+    {
+        "AuthenticationError",  # 401 — bad/expired API key
+        "PermissionDeniedError",  # 403 — key valid, no access
+        "BadRequestError",  # 400 — malformed request
+        "NotFoundError",  # 404 — bad model name etc.
+        "UnprocessableEntityError",  # 422 — semantic error in body
+    }
+)
+
+
+def _is_permanent_anthropic_error(exc: BaseException) -> bool:
+    """True for anthropic SDK exceptions that should NOT be retried."""
+    return type(exc).__name__ in _PERMANENT_ANTHROPIC_ERROR_CLASSES
+
 PROMPT_TEMPLATE = """\
 I'm cleaning up an institution-name dataset for healthcare provider research \
 and need to resolve free-text institution strings to US city/state.
@@ -130,7 +151,13 @@ class ClaudeAPIBackend:
     # ------------------------------------------------------------------
 
     def _call_with_retry(self, institution: str) -> str:
-        """Call Anthropic with exponential backoff on transient errors."""
+        """Call Anthropic with exponential backoff on transient errors.
+
+        Auth errors (401), bad-request (400), and permission errors (403)
+        are NOT retried — they're permanent until config changes. Retrying
+        on them just wastes API budget and (worse) clock time on a known-
+        bad key when a 700-call sweep is in flight.
+        """
         last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
@@ -153,6 +180,17 @@ class ClaudeAPIBackend:
                 return "".join(parts)
             except Exception as exc:
                 last_exc = exc
+                # Permanent failures — re-raise immediately instead of
+                # burning the retry budget. Identify by SDK class name to
+                # avoid importing anthropic into the type system (it's an
+                # optional dep).
+                if _is_permanent_anthropic_error(exc):
+                    logger.error(
+                        "anthropic API rejected request for %r: %s — not retrying",
+                        institution,
+                        exc,
+                    )
+                    raise
                 if attempt + 1 < self.max_retries:
                     sleep_for = self.retry_backoff_s * (2**attempt)
                     logger.warning(
