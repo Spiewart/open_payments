@@ -22,6 +22,7 @@ from ..selectors import (
     MatchSelector,
     SelectorResult,
     TieredConfidenceSelector,
+    TiesAreUnmatchedSelector,
     assign_tier,
 )
 from .factories import make_raw_conflicted_row
@@ -688,3 +689,121 @@ def test__identifier_wins_end_to_end_with_npi_in_conflicted(cms_data_dir, fixtur
     # The matched row's filter list must include NPI (this is the whole
     # point of the IdentifierWins path).
     assert PaymentFilters.NPI in matched["filters"]
+
+
+# ---------------------------------------------------------------------------
+# TiesAreUnmatchedSelector tests
+# ---------------------------------------------------------------------------
+
+
+def test__ties_are_unmatched_surfaces_all_candidates_as_unmatched_options():
+    """Multiple candidates → all surfaced as unmatched_options, none picked."""
+    df = pd.DataFrame(
+        [
+            _make_payments_x_conflicted_row(
+                profile_id=101,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.STATE],
+            ),
+            _make_payments_x_conflicted_row(
+                profile_id=102,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.SPECIALTY],
+            ),
+        ]
+    )
+    selector = TiesAreUnmatchedSelector()
+    result = selector.select(df, matcher=_stub_matcher_context())
+
+    assert result.kind == "unmatched_options"
+    assert result.unmatched_reason == Unmatcheds.UNFILTERABLE
+    # Both candidates carried through for human review.
+    assert len(result.unmatched_options) == 2
+    assert set(result.unmatched_options["profile_id"]) == {101, 102}
+
+
+def test__ties_are_unmatched_single_row_still_unmatched():
+    """Defensive behavior: a 1-row input also surfaces as unmatched_options.
+
+    In documented use (as a fallback for TieredConfidenceSelector) this case
+    doesn't arise — the parent selector handles the 1-row branch before
+    delegating. But the selector is conservative if called directly: the
+    caller's decision to invoke it is taken as authoritative.
+    """
+    df = pd.DataFrame(
+        [
+            _make_payments_x_conflicted_row(
+                profile_id=101,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME],
+            ),
+        ]
+    )
+    selector = TiesAreUnmatchedSelector()
+    result = selector.select(df, matcher=_stub_matcher_context())
+
+    assert result.kind == "unmatched_options"
+    assert len(result.unmatched_options) == 1
+
+
+def test__ties_are_unmatched_used_as_tiered_fallback_keeps_ties_unmatched():
+    """End-to-end: TieredConfidenceSelector(fallback=TiesAreUnmatchedSelector())
+    surfaces tier-tied candidates as unmatched_options rather than picking one.
+
+    Setup: 2 candidates that both tier at MEDIUM_NAME_PARTIAL and both have
+    the same n_negative_filters (zero in this case). The parent selector
+    reaches its fallback path; with TiesAreUnmatchedSelector that path
+    produces unmatched_options, NOT a forced pick from the legacy cascade.
+    """
+    df = pd.DataFrame(
+        [
+            _make_payments_x_conflicted_row(
+                profile_id=201,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.STATE,
+                ],
+            ),
+            _make_payments_x_conflicted_row(
+                profile_id=202,
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.SPECIALTY,
+                ],
+            ),
+        ]
+    )
+    # Both rows: full name + 1 strong disambiguator → MEDIUM_NAME_PARTIAL
+    # Both have 0 negative filters → tiebreaker can't differentiate → fallback.
+    selector = TieredConfidenceSelector(fallback=TiesAreUnmatchedSelector())
+    result = selector.select(df, matcher=_stub_matcher_context())
+
+    assert result.kind == "unmatched_options"
+    assert len(result.unmatched_options) == 2
+
+
+def test__ties_are_unmatched_does_not_intercept_clear_winners():
+    """End-to-end safety: a clear winner (one row at best tier) is still
+    picked as unique. TiesAreUnmatchedSelector only fires when the parent
+    selector delegates, which the parent does only when there's an actual
+    tie.
+    """
+    df = pd.DataFrame(
+        [
+            # Best tier candidate — only this row has NPI.
+            _make_payments_x_conflicted_row(
+                profile_id=301,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.NPI],
+            ),
+            # Lower-tier candidate.
+            _make_payments_x_conflicted_row(
+                profile_id=302,
+                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME],
+            ),
+        ]
+    )
+    selector = TieredConfidenceSelector(fallback=TiesAreUnmatchedSelector())
+    result = selector.select(df, matcher=_stub_matcher_context())
+
+    assert result.kind == "unique"
+    assert result.match.iloc[0]["profile_id"] == 301
+    assert result.confidence_tier == TIER_HIGH_NPI

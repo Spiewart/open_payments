@@ -39,6 +39,7 @@ from .selectors import (
     MatchSelector,
     SelectorResult,
     TieredConfidenceSelector,
+    TiesAreUnmatchedSelector,
 )
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "DefaultMatchSelector",
     "IdentifierWinsSelector",
     "TieredConfidenceSelector",
+    "TiesAreUnmatchedSelector",
     "SelectorResult",
     # Enums
     "PaymentFilters",

@@ -636,3 +636,68 @@ class TieredConfidenceSelector(MatchSelector):
 
         # Still tied at best tier AND same negative count → fallback.
         return self.fallback.select(cleanest_rows, matcher)
+
+
+# ---------------------------------------------------------------------------
+# TiesAreUnmatchedSelector — precision-favored fallback that refuses to pick.
+# ---------------------------------------------------------------------------
+
+
+class TiesAreUnmatchedSelector(MatchSelector):
+    """Surface candidates as ``unmatched_options`` instead of picking one.
+
+    Intended as a fallback for :class:`TieredConfidenceSelector` when the
+    study prefers precision over recall — i.e. when the cost of a silent
+    false positive outweighs the cost of a manual reconciliation pass.
+
+    By the time control reaches a fallback inside
+    ``TieredConfidenceSelector.select`` (line 638), the upstream logic has
+    already determined that multiple candidates share the same best
+    ``confidence_tier`` AND the same ``n_negative_filters`` count. By the
+    tier system's lights they are equivalent. The default fallback
+    (:class:`DefaultMatchSelector`) then narrows further via the legacy
+    cascade — firstname / middlename / citystate / highest-filter / specialty
+    — which picks the row with the richest filter set. That's a reasonable
+    recall-favored heuristic, but it silently picks a "winner" among rows
+    the tier rules considered indistinguishable. For COI auditing and
+    similar settings where credibility of each match matters, that's an
+    unwanted precision loss.
+
+    This selector breaks no ties: every call returns ``unmatched_options``
+    so a human reviewer can reconcile (or write the matches off as
+    irresolvable). The candidates' filter sets are preserved on the
+    unmatched_options sheets so the reviewer sees exactly what the matcher
+    considered.
+
+    Usage::
+
+        from open_payments import (
+            TieredConfidenceSelector,
+            TiesAreUnmatchedSelector,
+        )
+
+        selector = TieredConfidenceSelector(
+            fallback=TiesAreUnmatchedSelector(),
+        )
+
+    Behavior note: when called with a single row (no tie), this selector
+    still returns ``unmatched_options`` — the caller's decision to delegate
+    is taken as authoritative. In practice ``TieredConfidenceSelector``
+    only delegates when ``len(cleanest_rows) > 1``, so this case shouldn't
+    arise via the documented path, but is the conservative answer for
+    arbitrary callers.
+    """
+
+    def select(
+        self,
+        payments_x_conflicted: pd.DataFrame,
+        matcher: MatcherContext,
+    ) -> SelectorResult:
+        # confidence_tier is left None on the SelectorResult: the tied rows
+        # share an upstream-assigned tier, but signaling it on the unmatched
+        # bundle would suggest endorsement of one. The tier column is
+        # already preserved on each individual unmatched_options row.
+        return SelectorResult.unmatched_options_from(
+            options=payments_x_conflicted,
+            reason=Unmatcheds.UNFILTERABLE,
+        )
