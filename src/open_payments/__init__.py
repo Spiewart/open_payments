@@ -27,7 +27,14 @@ from .api import find_payments_for_conflicted_providers
 from .choices import FilterOutcome, PaymentFilters, Unmatcheds
 from .config import Settings
 from .entity_parser import EntityParser
-from .institution_locator import InstitutionLocator
+from .institution_locator import (
+    CandidateLocation,
+    ClaudeAPIBackend,
+    InstitutionLocator,
+    ManualReviewBackend,
+    NPPESBackend,
+    flatten_to_citystates,
+)
 from .schemas import (
     OPTIONAL_CONFLICTED_COLUMNS,
     REQUIRED_CONFLICTED_COLUMNS,
@@ -69,4 +76,9 @@ __all__ = [
     # Shared utilities (used by child apps post-match)
     "EntityParser",
     "InstitutionLocator",
+    "CandidateLocation",
+    "flatten_to_citystates",
+    "NPPESBackend",
+    "ManualReviewBackend",
+    "ClaudeAPIBackend",
 ]

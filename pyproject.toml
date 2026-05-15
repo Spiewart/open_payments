@@ -25,15 +25,26 @@ dependencies = [
     "openpyxl==3.1.5",
     "pydantic==2.10.6",
     "pydantic-settings>=2.6,<3.0",
+    # Used by NPPESBackend in institution_locator/ — HTTP client + fuzzy
+    # name matching against the registry.cms.gov organization-name search.
+    "requests>=2.32,<3",
+    "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest==8.3.4",
     "pytest-cov",
+    "responses",
     "ruff",
     "mypy",
     "build==1.2.2",
+]
+# Optional: only needed when ClaudeAPIBackend is configured on
+# InstitutionLocator (the residual-LLM-lookup path). NPPES + manual
+# paths work without anthropic installed.
+llm = [
+    "anthropic>=0.40",
 ]
 
 [project.urls]
@@ -56,6 +67,7 @@ payment_types = "open_payments.management:create_payment_types_excel"
 testpaths = ["src/open_payments/tests"]
 markers = [
     "integration: tests that require real CMS data on disk (skipped in CI by default)",
+    "network: tests that hit live external services (NPPES, Anthropic API, etc.)",
 ]
 
 [tool.ruff]
