@@ -40,12 +40,6 @@ dev = [
     "mypy",
     "build==1.2.2",
 ]
-# Optional: only needed when ClaudeAPIBackend is configured on
-# InstitutionLocator (the residual-LLM-lookup path). NPPES + manual
-# paths work without anthropic installed.
-llm = [
-    "anthropic>=0.40",
-]
 
 [project.urls]
 

@@ -12,45 +12,36 @@ Cascade (in order)
 2. **NPPESBackend.** Queries CMS NPI Registry (``registry.cms.hhs.gov``)
    for the organization name. Free, no auth, purpose-built for
    medical institutions. Includes a fuzzy fallback for name variants.
-3. **Residual gate.** Below the threshold (default 50), call
-   ``ManualReviewBackend`` for an xlsx round-trip with an analyst.
-   Above it, call ``ClaudeAPIBackend`` (requires
-   ``open_payments[llm]`` extra and ``ANTHROPIC_API_KEY``).
+3. **ManualReviewBackend.** For the residual (NPPES couldn't resolve),
+   exports an xlsx for an analyst to fill in; re-imports back to the
+   cache. Multi-campus institutions can be expressed as multiple rows
+   in the spreadsheet.
 
 Quickstart
 ----------
 .. code-block:: python
 
     from pathlib import Path
-    from open_payments import InstitutionLocator, ClaudeAPIBackend
+    from open_payments import InstitutionLocator
 
     locator = InstitutionLocator(
         cache_path=Path("~/.cache/institutions.json").expanduser(),
-        manual_threshold=50,
-        llm_backend=ClaudeAPIBackend(api_key=os.environ["ANTHROPIC_API_KEY"]),
     )
 
     # Step 1+2: cache + NPPES. Returns whatever resolved so far.
     results = locator.locate_batch(["Johns Hopkins University", "Cleveland Clinic"])
 
-    # Step 3: gate residual
-    strategy, residual = locator.recommend_residual_strategy(results)
-    if strategy == "manual":
+    # Step 3: any residual goes to manual review.
+    residual = locator.residual_institutions(results)
+    if residual:
         locator.export_for_manual_review(residual, Path("review.xlsx"))
         # ... analyst fills review.xlsx ...
         locator.import_manual_review(Path("review.xlsx"))
-    elif strategy == "llm":
-        locator.resolve_via_llm(residual)
-
-    # results dict reflects cache state after each step; re-query
-    # to fold in any new resolutions.
 
 Design notes
 ------------
-- Backends are pluggable. Pass ``nppes_backend=None`` or
-  ``llm_backend=None`` to disable steps. The orchestrator's
-  ``recommend_residual_strategy`` returns ``"llm_unavailable"`` when
-  the residual is above threshold but no LLM is configured.
+- Backends are pluggable. Pass ``nppes_backend=None`` to disable the
+  NPPES step (e.g. test environments without internet).
 - Cache key is the institution string normalized via
   ``cache.canonical_key`` (lowercase + collapse whitespace). Two
   inputs with different capitalization / spacing hit the same entry.
@@ -60,7 +51,6 @@ Design notes
 """
 
 from .cache import DiskCache, canonical_key
-from .llm import ClaudeAPIBackend
 from .manual import ManualReviewBackend
 from .nppes import NPPESBackend
 from .orchestrator import InstitutionLocator
@@ -74,5 +64,4 @@ __all__ = [
     "canonical_key",
     "NPPESBackend",
     "ManualReviewBackend",
-    "ClaudeAPIBackend",
 ]

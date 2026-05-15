@@ -1,9 +1,8 @@
 """Tests for the InstitutionLocator cascade orchestrator.
 
-The orchestrator's job is to wire DiskCache + NPPES + (manual or LLM)
-together. Backends are mocked here so the tests stay fast and
-hermetic — the backend-specific behavior is exercised in
-test_institution_nppes.py / test_institution_llm.py /
+The orchestrator's job is to wire DiskCache + NPPES + ManualReviewBackend
+together. Backends are mocked here so the tests stay fast and hermetic —
+backend-specific behavior is exercised in test_institution_nppes.py /
 test_institution_manual.py.
 """
 
@@ -33,17 +32,10 @@ def mock_nppes():
 
 
 @pytest.fixture
-def mock_llm():
-    return MagicMock()
-
-
-@pytest.fixture
-def locator(tmp_path, mock_nppes, mock_llm):
+def locator(tmp_path, mock_nppes):
     return InstitutionLocator(
         cache_path=tmp_path / "cache.json",
-        manual_threshold=50,
         nppes_backend=mock_nppes,
-        llm_backend=mock_llm,
     )
 
 
@@ -102,65 +94,32 @@ class TestResidual:
         assert locator.residual_institutions(results) == []
 
 
-class TestStrategy:
-    def test_no_residual_returns_none_strategy(self, locator):
-        strategy, residual = locator.recommend_residual_strategy(
-            {"Johns Hopkins University": [_candidate("Johns Hopkins University")]}
-        )
-        assert strategy == "none"
-        assert residual == []
+class TestManualRoute:
+    def test_export_for_manual_review_delegates_to_backend(self, locator, tmp_path):
+        path = tmp_path / "review.xlsx"
+        called: dict = {}
 
-    def test_below_threshold_recommends_manual(self, locator):
-        # 1 institution, threshold 50 → manual.
-        strategy, residual = locator.recommend_residual_strategy(
-            {"Imaginary Institute": [_miss("Imaginary Institute")]}
-        )
-        assert strategy == "manual"
-        assert residual == ["Imaginary Institute"]
+        def fake_export(institutions, p, existing=None):
+            called["args"] = (list(institutions), p)
+            return p
 
-    def test_above_threshold_with_llm_recommends_llm(self, tmp_path, mock_llm):
-        # Threshold 2, residual 3 → above. LLM configured → llm.
-        locator = InstitutionLocator(
-            cache_path=tmp_path / "cache.json",
-            manual_threshold=2,
-            llm_backend=mock_llm,
-            nppes_backend=MagicMock(),
-        )
-        results = {
-            f"Inst {i}": [_miss(f"Inst {i}")] for i in range(3)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(locator.manual_backend, "export", fake_export)
+            result = locator.export_for_manual_review(["Some Place"], path)
+        assert result == path
+        assert called["args"] == (["Some Place"], path)
+
+    def test_import_manual_review_writes_to_cache(self, locator, tmp_path):
+        path = tmp_path / "review.xlsx"
+        analyst_filled = {
+            "Cleveland Clinic": [
+                _candidate("Cleveland Clinic", source="manual", city="Cleveland", state="OH")
+            ]
         }
-        strategy, residual = locator.recommend_residual_strategy(results)
-        assert strategy == "llm"
-        assert len(residual) == 3
-
-    def test_above_threshold_without_llm_recommends_llm_unavailable(self, tmp_path):
-        locator = InstitutionLocator(
-            cache_path=tmp_path / "cache.json",
-            manual_threshold=2,
-            llm_backend=None,
-            nppes_backend=MagicMock(),
-        )
-        results = {f"Inst {i}": [_miss(f"Inst {i}")] for i in range(3)}
-        strategy, _ = locator.recommend_residual_strategy(results)
-        assert strategy == "llm_unavailable"
-
-
-class TestLlmRoute:
-    def test_resolve_via_llm_calls_backend_and_caches(self, locator, mock_llm):
-        mock_llm.locate_batch.return_value = {
-            "Cleveland Clinic": [_candidate("Cleveland Clinic", source="llm", city="Cleveland", state="OH")]
-        }
-        results = locator.resolve_via_llm(["Cleveland Clinic"])
-        mock_llm.locate_batch.assert_called_once_with(["Cleveland Clinic"])
-        # Cached → next locate_batch call won't hit NPPES.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(locator.manual_backend, "import_", lambda p: analyst_filled)
+            locator.import_manual_review(path)
         cached = locator.cache.get("Cleveland Clinic")
-        assert cached[0].source == "llm"
-
-    def test_resolve_via_llm_without_backend_raises(self, tmp_path):
-        locator = InstitutionLocator(
-            cache_path=tmp_path / "cache.json",
-            llm_backend=None,
-            nppes_backend=MagicMock(),
-        )
-        with pytest.raises(RuntimeError, match="no llm_backend configured"):
-            locator.resolve_via_llm(["anything"])
+        assert cached is not None
+        assert cached[0].source == "manual"
+        assert cached[0].city == "Cleveland"

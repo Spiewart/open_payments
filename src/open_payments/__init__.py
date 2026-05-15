@@ -42,7 +42,6 @@ from .config import Settings
 from .entity_parser import EntityParser
 from .institution_locator import (
     CandidateLocation,
-    ClaudeAPIBackend,
     InstitutionLocator,
     ManualReviewBackend,
     NPPESBackend,
@@ -94,7 +93,6 @@ __all__ = [
     "flatten_to_citystates",
     "NPPESBackend",
     "ManualReviewBackend",
-    "ClaudeAPIBackend",
     # Post-match analysis submodules
     "audit",
     "suspicion",
