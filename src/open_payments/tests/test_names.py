@@ -269,3 +269,96 @@ def test__middlename_match_partial_does_not_count():
         conflicted_middle_name_2=None,
         payment_middle_name="Michael",
     )
+
+
+# ---------------------------------------------------------------------------
+# one_edit_regex_alts + merge_by_last_name fuzzy fallback
+# ---------------------------------------------------------------------------
+
+
+import re as _re
+
+import pandas as _pd
+
+from open_payments.names import one_edit_regex_alts, PaymentIDsNamesMixin
+
+
+class TestOneEditRegexAlts:
+    def test_exact_match_always_included(self):
+        regex = one_edit_regex_alts("smith")
+        assert _re.fullmatch(regex, "smith") is not None
+
+    def test_single_substitution_matches(self):
+        # "smith" ↔ "smyth" (i → y)
+        regex = one_edit_regex_alts("smith")
+        assert _re.fullmatch(regex, "smyth") is not None
+
+    def test_single_insertion_matches(self):
+        # "philips" ↔ "phillips" (insert l)
+        regex = one_edit_regex_alts("philips")
+        assert _re.fullmatch(regex, "phillips") is not None
+
+    def test_single_deletion_matches(self):
+        # "ohara" ↔ "o'hara" (delete the apostrophe — though here we test
+        # the simpler "muller" vs "mueller" case)
+        regex = one_edit_regex_alts("mueller")
+        assert _re.fullmatch(regex, "muller") is not None
+
+    def test_apostrophe_deletion_for_ohara(self):
+        # Direct case from the abim audit: "o'hara" (with apostrophe) vs
+        # "ohara" (without). Deletion edit.
+        regex = one_edit_regex_alts("o'hara")
+        assert _re.fullmatch(regex, "ohara") is not None
+
+    def test_two_edits_rejected(self):
+        # "smith" vs "smyhh" requires 2 substitutions — should NOT match.
+        regex = one_edit_regex_alts("smith")
+        assert _re.fullmatch(regex, "smyhh") is None
+
+    def test_completely_different_name_rejected(self):
+        regex = one_edit_regex_alts("smith")
+        assert _re.fullmatch(regex, "jones") is None
+
+    def test_case_handled_when_caller_passes_case_insensitive(self):
+        # The regex itself is lowercase; callers pair it with case=False.
+        regex = one_edit_regex_alts("smith")
+        assert _re.fullmatch(regex, "SMYTH", flags=_re.IGNORECASE) is not None
+
+
+class TestMergeByLastNameFuzzy:
+    """End-to-end: merge_by_last_name's third fallback finds 1-edit matches
+    when exact + token-overlap come up empty."""
+
+    def _payments(self, last_names: list[str]) -> _pd.DataFrame:
+        return _pd.DataFrame({"last_name": last_names})
+
+    def test_fuzzy_apostrophe_drop(self):
+        # ABIM has "O'Hara"; CMS row has the apostrophe-stripped form.
+        payments = self._payments(["OHARA", "SMITH", "JONES"])
+        conflicted = _pd.Series({"last_name": "O'Hara"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert len(merged) == 1
+        assert merged.iloc[0]["last_name"] == "OHARA"
+
+    def test_fuzzy_single_substitution(self):
+        # Smyth vs Smith (single substitution).
+        payments = self._payments(["SMYTH", "JONES"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert len(merged) == 1
+        assert merged.iloc[0]["last_name"] == "SMYTH"
+
+    def test_fuzzy_falls_through_to_empty_for_unrelated_names(self):
+        # No fuzzy candidates either → returns empty (NOLASTNAME outcome).
+        payments = self._payments(["JONES", "WILLIAMS"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        assert merged.empty
+
+    def test_exact_match_short_circuits_fuzzy(self):
+        # When the exact match works, fuzzy fallback isn't invoked.
+        payments = self._payments(["SMITH", "SMYTH"])
+        conflicted = _pd.Series({"last_name": "Smith"})
+        merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
+        # Exact match returns just SMITH (not the fuzzy SMYTH match).
+        assert set(merged["last_name"]) == {"SMITH"}

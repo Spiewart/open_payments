@@ -103,6 +103,46 @@ def has_lastname_overlap(conflict_last_name: str, payment_last_name: str) -> boo
     return bool(conflict_tokens & payment_tokens)
 
 
+def one_edit_regex_alts(name: str) -> str:
+    """Return a regex alternation matching ``name`` or any 1-edit-distance variant.
+
+    Edit operations covered: single-character substitution, single-character
+    insertion, single-character deletion. Mirrors the semantics of
+    ``within_one_edit_substring`` (used for first-name partial matches) but
+    constructs a regex once for vectorized DataFrame filtering against many
+    candidate strings.
+
+    Calibrated for last-name matching where CMS / NPPES sometimes drop or
+    duplicate a character relative to ABIM's published spelling:
+    - "O'Hara" ↔ "OHara"        (deletion of apostrophe)
+    - "Smith" ↔ "Smyth"          (substitution)
+    - "Mueller" ↔ "Muller"       (deletion of 'e')
+    - "Phillips" ↔ "Philips"     (deletion of 'l')
+    - "Catherine" ↔ "Katherine"  (substitution at start)
+
+    Use with ``pd.Series.str.fullmatch(one_edit_regex_alts(name), case=False)``
+    to vectorize across a payments DataFrame.
+
+    Performance: regex has ~3n alternations for a name of length n.
+    Re-runs of the matcher's lastname fallback should call this ONCE per
+    conflicted provider, not per payment row.
+    """
+    name = name.lower()
+    n = len(name)
+    parts = {re.escape(name)}  # exact match always included
+    for i in range(n):
+        prefix = re.escape(name[:i])
+        # Substitution at position i: any single character
+        parts.add(f"{prefix}.{re.escape(name[i + 1 :])}")
+        # Insertion before position i: prefix + any char + rest
+        parts.add(f"{prefix}.{re.escape(name[i:])}")
+        # Deletion at position i: prefix + rest-after-i
+        parts.add(re.escape(name[:i] + name[i + 1 :]))
+    # Insertion at end of name
+    parts.add(f"{re.escape(name)}.")
+    return "|".join(sorted(parts))
+
+
 def within_one_edit_substring(
     needle: str,
     haystack: str,
@@ -297,6 +337,19 @@ class PaymentIDsNamesMixin(NamesMixin):
                 ]
                 if not double_matches.empty:
                     merged_payments = double_matches
+
+        # Fuzzy 1-edit fallback: handles single-character drift between
+        # ABIM-published and CMS-stored spellings (apostrophe stripping,
+        # transliteration variants, double-letter inconsistencies, etc.).
+        # Cost is paid only when the exact + token-overlap paths returned
+        # nothing — typically the bottom ~5-10% of providers per run.
+        # Downstream filters (firstname, citystates, credentials) disambiguate
+        # the additional false-positive candidates this surfaces.
+        if merged_payments.empty:
+            fuzzy_regex = one_edit_regex_alts(conflicted["last_name"])
+            merged_payments = payments[
+                payments["last_name"].str.fullmatch(fuzzy_regex, case=False, na=False)
+            ]
 
         if merged_payments.empty:
             return merged_payments
