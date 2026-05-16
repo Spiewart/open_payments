@@ -51,8 +51,17 @@ LOCATION_FILTERS: frozenset[str] = frozenset({"STATE", "CITY", "CITYSTATE"})
 
 # Lastname-only confidence tiers — the matcher had only lastname
 # agreement (possibly plus middlename / disambiguators), never firstname.
+# Includes VERY_LOW_LASTNAME_PARTIAL (1-edit fuzzy lastname) because a
+# row whose only name agreement is a partial-lastname match is at
+# least as risky as a row with an exact-lastname-only match — the
+# underlying name signal is structurally weaker.
 LASTNAME_ONLY_TIERS: frozenset[str] = frozenset(
-    {"VERY_LOW_LASTNAME_BARE", "LOW_LASTNAME_PLUS_ONE", "LOW_NAME_ONLY"}
+    {
+        "VERY_LOW_LASTNAME_BARE",
+        "VERY_LOW_LASTNAME_PARTIAL",
+        "LOW_LASTNAME_PLUS_ONE",
+        "LOW_NAME_ONLY",
+    }
 )
 
 
