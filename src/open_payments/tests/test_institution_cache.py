@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-import pytest
-
 from open_payments.institution_locator import (
     CandidateLocation,
     DiskCache,

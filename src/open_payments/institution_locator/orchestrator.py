@@ -58,7 +58,9 @@ class InstitutionLocator:
     ):
         self.cache = DiskCache(Path(cache_path))
         self.nppes_backend = nppes_backend if nppes_backend is not None else NPPESBackend()
-        self.manual_backend = manual_backend if manual_backend is not None else ManualReviewBackend()
+        self.manual_backend = (
+            manual_backend if manual_backend is not None else ManualReviewBackend()
+        )
 
     # ------------------------------------------------------------------
     # Step 1+2: cache + NPPES
@@ -108,9 +110,7 @@ class InstitutionLocator:
         """Return institutions whose only resolved candidate is a miss.
         These are the candidates for the manual review step."""
         return [
-            institution
-            for institution, candidates in results.items()
-            if _all_misses(candidates)
+            institution for institution, candidates in results.items() if _all_misses(candidates)
         ]
 
     # ------------------------------------------------------------------

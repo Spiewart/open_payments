@@ -622,7 +622,9 @@ class TieredConfidenceSelector(MatchSelector):
         # pre-renovation in-line code and contradicts the precision intent
         # of this selector. Pass `fallback=DefaultMatchSelector()` explicitly
         # to restore the old behavior.
-        self.fallback: MatchSelector = fallback if fallback is not None else TiesAreUnmatchedSelector()
+        self.fallback: MatchSelector = (
+            fallback if fallback is not None else TiesAreUnmatchedSelector()
+        )
 
     def _tier_rank(self, tier: str) -> int:
         """Rank lookup — 0 is best, fallback is last."""

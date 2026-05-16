@@ -29,13 +29,13 @@ labels (state-only disagreement = D, normal = E).
 Custom predicates / taxonomy aliases can be passed in to adapt to a
 specific study; the defaults handle most common situations.
 """
+
 from __future__ import annotations
 
 import re
-from typing import Iterable, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 import pandas as pd
-
 
 # --------------------------------------------------------------------------
 # Filter-name groupings (matches PaymentFilters values)
@@ -44,9 +44,7 @@ import pandas as pd
 FIRSTNAME_FILTERS: frozenset[str] = frozenset(
     {"FIRSTNAME", "FIRSTNAME_PARTIAL", "FIRST_MIDDLE_NAME"}
 )
-SPECIALTY_FILTERS: frozenset[str] = frozenset(
-    {"SPECIALTY", "SUBSPECIALTY", "FULLSPECIALTY"}
-)
+SPECIALTY_FILTERS: frozenset[str] = frozenset({"SPECIALTY", "SUBSPECIALTY", "FULLSPECIALTY"})
 LOCATION_FILTERS: frozenset[str] = frozenset({"STATE", "CITY", "CITYSTATE"})
 
 # Lastname-only confidence tiers — the matcher had only lastname
@@ -169,6 +167,7 @@ def parse_filter_set(filters_repr) -> set[str]:
 # Classifiers
 # --------------------------------------------------------------------------
 
+
 def classify_npi_match_suspicion(
     row: pd.Series,
     *,
@@ -206,9 +205,7 @@ def classify_npi_match_suspicion(
     if fn_disagreed:
         return SUSPICION_NPI_FIRSTNAME_DISAGREED
 
-    spec_disagreed = bool(neg & SPECIALTY_FILTERS) and not bool(
-        pos & SPECIALTY_FILTERS
-    )
+    spec_disagreed = bool(neg & SPECIALTY_FILTERS) and not bool(pos & SPECIALTY_FILTERS)
     state_disagreed = bool(neg & LOCATION_FILTERS) and not bool(pos & LOCATION_FILTERS)
 
     if spec_disagreed and specialty_is_taxonomy_alias(
@@ -260,9 +257,7 @@ def classify_non_npi_match_suspicion(
 
     pos = parse_filter_set(row.get(positive_col))
     neg = parse_filter_set(row.get(negative_col))
-    spec_disagreed = bool(neg & SPECIALTY_FILTERS) and not bool(
-        pos & SPECIALTY_FILTERS
-    )
+    spec_disagreed = bool(neg & SPECIALTY_FILTERS) and not bool(pos & SPECIALTY_FILTERS)
     state_disagreed = bool(neg & LOCATION_FILTERS) and not bool(pos & LOCATION_FILTERS)
 
     if spec_disagreed and specialty_is_taxonomy_alias(

@@ -26,11 +26,10 @@ Three concerns, separated by stability:
 """
 
 import re
-from typing import ClassVar, Union
+from typing import ClassVar, Self, Union
 
 import pandas as pd
 from pydantic import BaseModel, model_validator
-from typing_extensions import Self
 
 from .choices import FilterOutcome, PaymentFilters, States
 from .conflicts import Conflicts

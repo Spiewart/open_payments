@@ -215,8 +215,19 @@ class EntityParser:
         in ``Coca-Cola`` should NOT match, but ``Acme Co`` should — this
         list is for the standalone-only path."""
         return [
-            "Co", "corp", "F", "inc", "llc", "lp", "ltd",
-            "nutrition", "sales", "sons", "UK", "us", "usa",
+            "Co",
+            "corp",
+            "F",
+            "inc",
+            "llc",
+            "lp",
+            "ltd",
+            "nutrition",
+            "sales",
+            "sons",
+            "UK",
+            "us",
+            "usa",
         ]
 
     def remove_useless_suffixes(self) -> None:
@@ -230,8 +241,22 @@ class EntityParser:
     def useless_suffixes(self) -> list[str]:
         """Case-sensitive legal-form / locale suffixes."""
         return [
-            "AB", "AG", "An", "Corp", "DS", "ER", "GmbH",
-            "Inc", "INC", "LLC", "LP", "Ltd", "plc", "TX", "US", "USA",
+            "AB",
+            "AG",
+            "An",
+            "Corp",
+            "DS",
+            "ER",
+            "GmbH",
+            "Inc",
+            "INC",
+            "LLC",
+            "LP",
+            "Ltd",
+            "plc",
+            "TX",
+            "US",
+            "USA",
         ]
 
     def remove_useless_prefixes(self) -> None:

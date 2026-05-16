@@ -106,9 +106,7 @@ class TestMissAndFuzzyFallback:
         responses.add(
             responses.GET,
             NPPES_ENDPOINT,
-            json=_nppes_payload(
-                [_row("BRIGHAM AND WOMEN'S HOSPITAL INC", "BOSTON", "MA")]
-            ),
+            json=_nppes_payload([_row("BRIGHAM AND WOMEN'S HOSPITAL INC", "BOSTON", "MA")]),
             status=200,
         )
         candidates = backend.locate("Brigham and Women's Hospital")
@@ -132,9 +130,7 @@ class TestMissAndFuzzyFallback:
         responses.add(
             responses.GET,
             NPPES_ENDPOINT,
-            json=_nppes_payload(
-                [_row("WHOLLY UNRELATED MEDICAL CENTER", "SOMEWHERE", "TX")]
-            ),
+            json=_nppes_payload([_row("WHOLLY UNRELATED MEDICAL CENTER", "SOMEWHERE", "TX")]),
             status=200,
         )
         candidates = backend.locate("Imaginary Institute of Things")

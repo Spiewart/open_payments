@@ -72,9 +72,7 @@ class DiskCache:
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            logger.warning(
-                "institution cache at %s is corrupt; starting fresh", self.path
-            )
+            logger.warning("institution cache at %s is corrupt; starting fresh", self.path)
             self._data = {}
             self._loaded = True
             return
@@ -130,8 +128,7 @@ class DiskCache:
         """Atomic write via temp file + ``os.replace``."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            key: [c.model_dump(mode="json") for c in entries]
-            for key, entries in self._data.items()
+            key: [c.model_dump(mode="json") for c in entries] for key, entries in self._data.items()
         }
         tmp_fd, tmp_path = tempfile.mkstemp(
             prefix=self.path.name + ".",

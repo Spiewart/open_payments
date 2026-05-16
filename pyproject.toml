@@ -10,7 +10,7 @@ authors = [
 ]
 description = "A package for importing, cleaning, and analyzing CMS OpenPayments datasets in Pandas."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 keywords = ["OpenPayments", "CMS"]
 classifiers = [
@@ -66,7 +66,7 @@ markers = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -85,5 +85,5 @@ ignore = [
 "src/open_payments/tests/**" = ["B011"]  # assert False is fine in tests
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 ignore_missing_imports = true
