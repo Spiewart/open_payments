@@ -16,7 +16,7 @@ from ..selectors import (
     TIER_MEDIUM_HIGH_NAME_PLUS,
     TIER_MEDIUM_NAME_PARTIAL,
     TIER_VERY_LOW_LASTNAME_BARE,
-    TIER_VERY_LOW_LASTNAME_FUZZY,
+    TIER_VERY_LOW_LASTNAME_PARTIAL,
     TIER_VERY_LOW_OTHER,
     DefaultMatchSelector,
     IdentifierWinsSelector,
@@ -411,33 +411,33 @@ def test__identifier_wins_default_fallback_is_default_match_selector():
             {PaymentFilters.FIRSTNAME},
             TIER_VERY_LOW_LASTNAME_BARE,
         ),
-        # VERY_LOW_LASTNAME_FUZZY: lastname matched only via 1-edit fuzzy.
+        # VERY_LOW_LASTNAME_PARTIAL: lastname matched only via 1-edit partial.
         # No exact-LASTNAME tag, so all exact-lastname tiers reject it.
         (
-            {PaymentFilters.LASTNAME_FUZZY},
+            {PaymentFilters.LASTNAME_PARTIAL},
             set(),
-            TIER_VERY_LOW_LASTNAME_FUZZY,
+            TIER_VERY_LOW_LASTNAME_PARTIAL,
         ),
-        # Fuzzy + firstname + disambiguators still lands in FUZZY (intentional
-        # demotion): the underlying name signal is weaker than an exact match
-        # would have been, so we group all fuzzy hits at the same low tier
-        # rather than promote a fuzzy-but-corroborated row to MEDIUM_HIGH.
-        # Within-tier ranking by n_filters still rewards rows with more
-        # corroborating signals.
+        # Partial + firstname + disambiguators still lands in LASTNAME_PARTIAL
+        # (intentional demotion): the underlying name signal is weaker than
+        # an exact match would have been, so we group all partial hits at the
+        # same low tier rather than promote a partial-but-corroborated row to
+        # MEDIUM_HIGH. Within-tier ranking by n_filters still rewards rows
+        # with more corroborating signals.
         (
             {
-                PaymentFilters.LASTNAME_FUZZY,
+                PaymentFilters.LASTNAME_PARTIAL,
                 PaymentFilters.FIRSTNAME,
                 PaymentFilters.CITYSTATE,
                 PaymentFilters.MIDDLENAME,
             },
             set(),
-            TIER_VERY_LOW_LASTNAME_FUZZY,
+            TIER_VERY_LOW_LASTNAME_PARTIAL,
         ),
-        # Fuzzy lastname + NPI: NPI is a unique identifier and outranks the
-        # name signal — row lands in HIGH_NPI, not FUZZY.
+        # Partial lastname + NPI: NPI is a unique identifier and outranks the
+        # name signal — row lands in HIGH_NPI, not LASTNAME_PARTIAL.
         (
-            {PaymentFilters.LASTNAME_FUZZY, PaymentFilters.NPI},
+            {PaymentFilters.LASTNAME_PARTIAL, PaymentFilters.NPI},
             set(),
             TIER_HIGH_NPI,
         ),
@@ -656,7 +656,7 @@ def test__tiered_selector_accepts_explicit_default_match_selector_fallback():
 
 def test__tiered_selector_default_rule_list_pins_deans_compat():
     """Default rule list ports deans's match_confidence.py rules verbatim
-    plus a fuzzy-lastname tier appended at the bottom. Negative-aware
+    plus a LASTNAME_PARTIAL tier appended at the bottom. Negative-aware
     behavior happens at the selector level via tiebreaking, not via
     tier-list extension."""
     assert len(DEFAULT_TIER_RULES) == 7
@@ -667,7 +667,7 @@ def test__tiered_selector_default_rule_list_pins_deans_compat():
         TIER_LOW_LASTNAME_PLUS_ONE,
         TIER_LOW_NAME_ONLY,
         TIER_VERY_LOW_LASTNAME_BARE,
-        TIER_VERY_LOW_LASTNAME_FUZZY,
+        TIER_VERY_LOW_LASTNAME_PARTIAL,
     ]
 
 

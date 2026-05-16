@@ -326,9 +326,11 @@ class TestOneEditRegexAlts:
         assert _re.fullmatch(regex, "SMYTH", flags=_re.IGNORECASE) is not None
 
 
-class TestMergeByLastNameFuzzy:
+class TestMergeByLastNamePartial:
     """End-to-end: merge_by_last_name's third fallback finds 1-edit matches
-    when exact + token-overlap come up empty."""
+    when exact + token-overlap come up empty. Hits from this path are
+    tagged with the ``LASTNAME_PARTIAL`` filter (mirroring
+    ``FIRSTNAME_PARTIAL`` on the firstname side)."""
 
     def _payments(self, last_names: list[str]) -> _pd.DataFrame:
         return _pd.DataFrame({"last_name": last_names})
@@ -364,19 +366,19 @@ class TestMergeByLastNameFuzzy:
         # Exact match returns just SMITH (not the fuzzy SMYTH match).
         assert set(merged["last_name"]) == {"SMITH"}
 
-    # --- LASTNAME vs LASTNAME_FUZZY tagging ------------------------------
-    # The SELECTION layer demotes fuzzy hits; the filter tag is the signal
+    # --- LASTNAME vs LASTNAME_PARTIAL tagging ---------------------------
+    # The SELECTION layer demotes partial hits; the filter tag is the signal
     # that drives that demotion. These tests pin the tagging contract.
 
-    def test_fuzzy_path_tags_filters_lastname_fuzzy(self):
-        # Fuzzy hit → row's `filters` column carries LASTNAME_FUZZY only.
+    def test_partial_path_tags_filters_lastname_partial(self):
+        # Partial hit → row's `filters` column carries LASTNAME_PARTIAL only.
         # Critically NOT LASTNAME — the SELECTION-layer tier predicates
         # check `LASTNAME in filters` to land a row in the exact-lastname
-        # tiers, so accidentally co-tagging would un-demote the fuzzy row.
+        # tiers, so accidentally co-tagging would un-demote the partial row.
         payments = self._payments(["SMYTH"])
         conflicted = _pd.Series({"last_name": "Smith"})
         merged = PaymentIDsNamesMixin.merge_by_last_name(payments, conflicted)
-        assert merged.iloc[0]["filters"] == [PaymentFilters.LASTNAME_FUZZY]
+        assert merged.iloc[0]["filters"] == [PaymentFilters.LASTNAME_PARTIAL]
         assert PaymentFilters.LASTNAME not in merged.iloc[0]["filters"]
 
     def test_exact_path_tags_filters_lastname(self):

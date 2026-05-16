@@ -338,25 +338,27 @@ class PaymentIDsNamesMixin(NamesMixin):
                 if not double_matches.empty:
                     merged_payments = double_matches
 
-        # Fuzzy 1-edit fallback: handles single-character drift between
-        # ABIM-published and CMS-stored spellings (apostrophe stripping,
-        # transliteration variants, double-letter inconsistencies, etc.).
-        # Cost is paid only when the exact + token-overlap paths returned
-        # nothing — typically the bottom ~5-10% of providers per run.
-        # Downstream filters (firstname, citystates, credentials) disambiguate
-        # the additional false-positive candidates this surfaces.
+        # 1-edit-distance partial-match fallback: handles single-character
+        # drift between ABIM-published and CMS-stored spellings (apostrophe
+        # stripping, transliteration variants, double-letter inconsistencies,
+        # etc.). Cost is paid only when the exact + token-overlap paths
+        # returned nothing — typically the bottom ~5-10% of providers per
+        # run. Downstream filters (firstname, citystates, credentials)
+        # disambiguate the additional false-positive candidates this surfaces.
         #
-        # Hits from this path are tagged `LASTNAME_FUZZY` (not `LASTNAME`)
+        # Hits from this path are tagged `LASTNAME_PARTIAL` (not `LASTNAME`)
         # so the SELECTION layer can treat them as lower-confidence than
-        # exact-lastname hits — fuzzy matches need stronger corroboration
+        # exact-lastname hits — partial matches need stronger corroboration
         # from other filters (firstname, citystates, credentials) to win.
-        fuzzy_match = False
+        # The naming mirrors `FIRSTNAME_PARTIAL` so analysts see a consistent
+        # exact / _PARTIAL pair across name components.
+        partial_match = False
         if merged_payments.empty:
-            fuzzy_regex = one_edit_regex_alts(conflicted["last_name"])
+            partial_regex = one_edit_regex_alts(conflicted["last_name"])
             merged_payments = payments[
-                payments["last_name"].str.fullmatch(fuzzy_regex, case=False, na=False)
+                payments["last_name"].str.fullmatch(partial_regex, case=False, na=False)
             ]
-            fuzzy_match = not merged_payments.empty
+            partial_match = not merged_payments.empty
 
         if merged_payments.empty:
             return merged_payments
@@ -375,7 +377,7 @@ class PaymentIDsNamesMixin(NamesMixin):
         )
 
         lastname_tag = (
-            PaymentFilters.LASTNAME_FUZZY if fuzzy_match else PaymentFilters.LASTNAME
+            PaymentFilters.LASTNAME_PARTIAL if partial_match else PaymentFilters.LASTNAME
         )
         merged.insert(0, "filters", [[lastname_tag]] * len(merged))
         # Section 5.8: parallel negative_filters column populated by
