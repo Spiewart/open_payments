@@ -2,6 +2,7 @@ import unittest
 from typing import Union
 
 import pandas as pd
+import pytest
 
 from ..choices import FilterOutcome
 from ..citystates import CityState
@@ -18,6 +19,7 @@ class TestPaymentIDs(unittest.TestCase):
             years=[2024],
         )
 
+    @pytest.mark.integration
     def test__pre_processing(self):
         self.assertTrue(hasattr(self.payment_ids, "general_payments"))
         self.payment_ids.general_payments = self.payment_ids.read_payments_csvs(
@@ -27,6 +29,7 @@ class TestPaymentIDs(unittest.TestCase):
             self.payment_ids.general_payments["Covered_Recipient_Profile_ID"].isnull().any()
         )
 
+    @pytest.mark.integration
     def test__all_payments(self):
         all_payments = self.payment_ids.all_payments()
 
