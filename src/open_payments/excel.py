@@ -113,6 +113,13 @@ def apply_data_validation(
     }
     if column_header not in header_to_idx:
         return
+    # Header-only sheet (no body rows): nothing to validate. openpyxl's
+    # CellRange rejects "C2:C1" with "1 must be greater than 2", so we
+    # short-circuit before constructing the range. This case shows up for
+    # studies that produce zero NPI matches (e.g. source repos that don't
+    # publish NPIs and rely on name-cascade matching).
+    if ws.max_row < 2:
+        return
     col_idx = header_to_idx[column_header]
     col_letter = get_column_letter(col_idx)
     values = list(allowed_values)
