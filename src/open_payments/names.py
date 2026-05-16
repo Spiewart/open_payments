@@ -376,9 +376,7 @@ class PaymentIDsNamesMixin(NamesMixin):
             axis=1,
         )
 
-        lastname_tag = (
-            PaymentFilters.LASTNAME_PARTIAL if partial_match else PaymentFilters.LASTNAME
-        )
+        lastname_tag = PaymentFilters.LASTNAME_PARTIAL if partial_match else PaymentFilters.LASTNAME
         merged.insert(0, "filters", [[lastname_tag]] * len(merged))
         # Section 5.8: parallel negative_filters column populated by
         # filter_by_* methods that return FilterOutcome.DISAGREE.

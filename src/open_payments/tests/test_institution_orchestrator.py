@@ -49,14 +49,18 @@ class TestLocateBatch:
         assert results["Johns Hopkins University"][0].city == "Baltimore"
 
     def test_cache_miss_falls_through_to_nppes(self, locator, mock_nppes):
-        mock_nppes.locate.return_value = [_candidate("Cleveland Clinic", city="Cleveland", state="OH")]
+        mock_nppes.locate.return_value = [
+            _candidate("Cleveland Clinic", city="Cleveland", state="OH")
+        ]
         results = locator.locate_batch(["Cleveland Clinic"])
         mock_nppes.locate.assert_called_once_with("Cleveland Clinic")
         assert results["Cleveland Clinic"][0].state == "OH"
 
     def test_mixed_cache_hits_and_misses(self, locator, mock_nppes):
         locator.cache.put("Johns Hopkins University", [_candidate("Johns Hopkins University")])
-        mock_nppes.locate.return_value = [_candidate("Cleveland Clinic", city="Cleveland", state="OH")]
+        mock_nppes.locate.return_value = [
+            _candidate("Cleveland Clinic", city="Cleveland", state="OH")
+        ]
         results = locator.locate_batch(["Johns Hopkins University", "Cleveland Clinic"])
         # Only Cleveland needed NPPES.
         mock_nppes.locate.assert_called_once_with("Cleveland Clinic")
@@ -64,7 +68,9 @@ class TestLocateBatch:
         assert "Cleveland Clinic" in results
 
     def test_nppes_results_are_cached(self, locator, mock_nppes):
-        mock_nppes.locate.return_value = [_candidate("Cleveland Clinic", city="Cleveland", state="OH")]
+        mock_nppes.locate.return_value = [
+            _candidate("Cleveland Clinic", city="Cleveland", state="OH")
+        ]
         locator.locate_batch(["Cleveland Clinic"])
         # Second call should not invoke NPPES again.
         mock_nppes.locate.reset_mock()

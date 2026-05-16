@@ -9,24 +9,24 @@ The palette intentionally uses neutral names (SOURCE / CMS / EVIDENCE /
 REVIEWER) instead of study-specific names (Dean / etc.) so the same
 colors can be reused across child apps.
 """
+
 from __future__ import annotations
 
-from typing import Callable, Iterable, Optional, Sequence
-
-import pandas as pd
+from collections.abc import Callable, Iterable, Sequence
+from typing import Optional
 
 # --------------------------------------------------------------------------
 # Color palette (RGB hex; openpyxl PatternFill compatible)
 # --------------------------------------------------------------------------
 
-COLOR_SOURCE = "DEEBF7"          # light blue — source-of-truth (e.g. dean info)
-COLOR_CMS = "FFF2CC"             # light yellow — OpenPayments side
-COLOR_EVIDENCE = "EDEDED"        # light gray — matcher's filter evidence
-COLOR_REVIEWER = "E2EFDA"        # light green — reviewer action zone
+COLOR_SOURCE = "DEEBF7"  # light blue — source-of-truth (e.g. dean info)
+COLOR_CMS = "FFF2CC"  # light yellow — OpenPayments side
+COLOR_EVIDENCE = "EDEDED"  # light gray — matcher's filter evidence
+COLOR_REVIEWER = "E2EFDA"  # light green — reviewer action zone
 COLOR_HEADER_TEXT = "1F1F1F"
-COLOR_WARN_RED = "FFC7CE"        # Excel "Bad" cell style — warning red
-COLOR_WARN_RED_TEXT = "9C0006"   # dark red text on the warning fill
-COLOR_LEGEND_HEADER = "D9D9D9"   # gray for legend section headers
+COLOR_WARN_RED = "FFC7CE"  # Excel "Bad" cell style — warning red
+COLOR_WARN_RED_TEXT = "9C0006"  # dark red text on the warning fill
+COLOR_LEGEND_HEADER = "D9D9D9"  # gray for legend section headers
 
 # Backward-compatible aliases for callers that historically used the
 # dean-flavored names. New code should prefer the SOURCE-prefixed name.
@@ -59,7 +59,7 @@ def apply_section_styling(
         freeze_header: if True, freeze the header row (panes='A2').
         body_wrap_text: if True, wrap text in body cells.
     """
-    from openpyxl.styles import PatternFill, Font, Alignment
+    from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     if ws.max_row < 1:
@@ -108,9 +108,7 @@ def apply_data_validation(
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
 
-    header_to_idx = {
-        ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)
-    }
+    header_to_idx = {ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)}
     if column_header not in header_to_idx:
         return
     # Header-only sheet (no body rows): nothing to validate. openpyxl's
@@ -128,9 +126,7 @@ def apply_data_validation(
         formula1=f'"{",".join(values)}"',
         allow_blank=allow_blank,
     )
-    dv.error = f"Pick one of: {', '.join(values)}" + (
-        " (or leave blank)" if allow_blank else ""
-    )
+    dv.error = f"Pick one of: {', '.join(values)}" + (" (or leave blank)" if allow_blank else "")
     dv.errorTitle = "Invalid value"
     dv.add(f"{col_letter}2:{col_letter}{ws.max_row}")
     ws.add_data_validation(dv)
@@ -148,9 +144,7 @@ def apply_hyperlinks(
     """
     from openpyxl.styles import Font
 
-    header_to_idx = {
-        ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)
-    }
+    header_to_idx = {ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)}
     if column_header not in header_to_idx:
         return
     col_idx = header_to_idx[column_header]
@@ -181,15 +175,16 @@ def force_string_data_type(ws) -> None:
                 cell.data_type = "s"
 
 
-def paint_warning_cell(cell, *, fill_rgb: str = COLOR_WARN_RED,
-                       text_rgb: str = COLOR_WARN_RED_TEXT) -> None:
+def paint_warning_cell(
+    cell, *, fill_rgb: str = COLOR_WARN_RED, text_rgb: str = COLOR_WARN_RED_TEXT
+) -> None:
     """Paint a single cell warning-red with bold dark-red text.
 
     Used by the suspicion-coloring helper to flag high-suspicion cells.
     Cell-level scoping by design: callers paint specific cells, not
     whole rows.
     """
-    from openpyxl.styles import PatternFill, Font, Alignment
+    from openpyxl.styles import Alignment, Font, PatternFill
 
     cell.fill = PatternFill("solid", fgColor=fill_rgb)
     cell.font = Font(bold=True, color=text_rgb)
@@ -213,7 +208,7 @@ def apply_legend_formatting(
         section_prefix: rows whose column-A value starts with this prefix
             are styled as section dividers (bold + gray fill).
     """
-    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.styles import Alignment, Font, PatternFill
 
     ws.column_dimensions["A"].width = width_a
     ws.column_dimensions["B"].width = width_b

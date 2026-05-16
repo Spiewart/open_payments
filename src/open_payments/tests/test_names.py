@@ -275,13 +275,15 @@ def test__middlename_match_partial_does_not_count():
 # one_edit_regex_alts + merge_by_last_name fuzzy fallback
 # ---------------------------------------------------------------------------
 
+# Imports below are intentionally section-local so this fuzzy-matching test
+# group stays self-contained; the _re / _pd aliases avoid colliding with names
+# used in the upper test groups.
+import re as _re  # noqa: E402
 
-import re as _re
+import pandas as _pd  # noqa: E402
 
-import pandas as _pd
-
-from open_payments.choices import PaymentFilters
-from open_payments.names import one_edit_regex_alts, PaymentIDsNamesMixin
+from open_payments.choices import PaymentFilters  # noqa: E402
+from open_payments.names import PaymentIDsNamesMixin, one_edit_regex_alts  # noqa: E402
 
 
 class TestOneEditRegexAlts:

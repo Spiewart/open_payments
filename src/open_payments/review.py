@@ -35,13 +35,15 @@ Color coding (from :mod:`open_payments.excel`):
   - EVIDENCE (gray): matcher filters, suspicion scoring (read-only)
   - REVIEWER (light green): reviewer action zone (fill these in)
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import re
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional, Sequence
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -70,6 +72,7 @@ logger = logging.getLogger(__name__)
 # Config dataclasses
 # --------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SourceField:
     """Description of one source-side field shown in the review workbook.
@@ -90,6 +93,7 @@ class SourceField:
         extractor: Optional callable to transform the raw value
             (e.g. pulling a state out of a citystates blob).
     """
+
     display_label: str
     matched_column: str
     conflicts_column: Optional[str] = None
@@ -115,11 +119,10 @@ class ReviewConfig:
             is ``(section_name, [(field, explanation), ...])``; the
             generic LEGEND content gets these appended at the end.
     """
+
     entity_name: str = "Provider"
     source_fields: Sequence[SourceField] = field(default_factory=tuple)
-    legend_extras: Sequence[tuple[str, list[tuple[str, str]]]] = field(
-        default_factory=tuple
-    )
+    legend_extras: Sequence[tuple[str, list[tuple[str, str]]]] = field(default_factory=tuple)
 
     @property
     def specialty_display_col(self) -> str:
@@ -139,6 +142,7 @@ class ReviewConfig:
 # the OpenPayments schema columns, and the evidence/reviewer columns
 # are fixed across the framework.
 # --------------------------------------------------------------------------
+
 
 def _cms_columns() -> list[ColumnSpec]:
     return [
@@ -200,11 +204,10 @@ def _reviewer_columns_collision() -> list[ColumnSpec]:
 # Per-config column spec builders
 # --------------------------------------------------------------------------
 
+
 def _source_column_specs(config: ReviewConfig) -> list[ColumnSpec]:
     """Build (header, color, width) tuples for the entity columns."""
-    return [
-        (f.display_label, COLOR_SOURCE, f.width) for f in config.source_fields
-    ]
+    return [(f.display_label, COLOR_SOURCE, f.width) for f in config.source_fields]
 
 
 def _provider_pk_column(config: ReviewConfig) -> ColumnSpec:
@@ -224,9 +227,7 @@ def _match_sheet_specs(config: ReviewConfig) -> list[ColumnSpec]:
 
 def _unmatched_sheet_specs(config: ReviewConfig) -> list[ColumnSpec]:
     return (
-        [_provider_pk_column(config)]
-        + _source_column_specs(config)
-        + _reviewer_columns_unmatched()
+        [_provider_pk_column(config)] + _source_column_specs(config) + _reviewer_columns_unmatched()
     )
 
 
@@ -265,6 +266,7 @@ def _collisions_sheet_specs(config: ReviewConfig) -> list[ColumnSpec]:
 # --------------------------------------------------------------------------
 # Cell-value helpers
 # --------------------------------------------------------------------------
+
 
 def _filters_repr_to_str(filters_repr) -> str:
     """Convert persisted filter list-repr into a clean comma-separated string.
@@ -399,6 +401,7 @@ def _coerce_review_outcome(value) -> Optional[bool]:
 # Sheet builders
 # --------------------------------------------------------------------------
 
+
 def _read_source_field(row, field_: SourceField, *, source: str = "matched") -> Any:
     """Pull a value from a row using the SourceField's column + extractor.
 
@@ -423,7 +426,7 @@ def _read_source_field(row, field_: SourceField, *, source: str = "matched") -> 
     elif source == "unmatched":
         col = field_.matched_column
         if col.startswith("conflict_"):
-            col = col[len("conflict_"):]
+            col = col[len("conflict_") :]
     elif source == "conflicts":
         col = field_.conflicts_column
     else:
@@ -473,28 +476,30 @@ def _build_match_rows(
         row: dict[str, Any] = {"provider_pk": _safe_int(r.get("provider_pk"))}
         for f_ in config.source_fields:
             row[f_.display_label] = _read_source_field(r, f_, source="matched")
-        row.update({
-            "CMS: profile_id": _safe_int(r.get("profile_id")),
-            "CMS: Last Name": r.get("last_name"),
-            "CMS: First Name": r.get("first_name"),
-            "CMS: Middle Name": r.get("middle_name"),
-            "CMS: Specialty": _extract_first_specialty(r.get("specialtys")),
-            "CMS: State": _extract_first_state(r.get("citystates")),
-            "CMS: NPI": _safe_int(r.get("npi")),
-            "confidence_tier": r.get("confidence_tier"),
-            "num_filters": _safe_int(r.get("num_filters")),
-            "positive_filters": _filters_repr_to_str(r.get("filters")),
-            "n_negative_filters": _safe_int(r.get("n_negative_filters")),
-            "negative_filters": _filters_repr_to_str(r.get("negative_filters")),
-            "npi_match_suspicion": None,
-            "non_npi_match_suspicion": None,
-            "match_correct": None,
-            "corrected_profile_id": None,
-            "corrected_last_name": None,
-            "corrected_first_name": None,
-            "corrected_npi": None,
-            "notes": None,
-        })
+        row.update(
+            {
+                "CMS: profile_id": _safe_int(r.get("profile_id")),
+                "CMS: Last Name": r.get("last_name"),
+                "CMS: First Name": r.get("first_name"),
+                "CMS: Middle Name": r.get("middle_name"),
+                "CMS: Specialty": _extract_first_specialty(r.get("specialtys")),
+                "CMS: State": _extract_first_state(r.get("citystates")),
+                "CMS: NPI": _safe_int(r.get("npi")),
+                "confidence_tier": r.get("confidence_tier"),
+                "num_filters": _safe_int(r.get("num_filters")),
+                "positive_filters": _filters_repr_to_str(r.get("filters")),
+                "n_negative_filters": _safe_int(r.get("n_negative_filters")),
+                "negative_filters": _filters_repr_to_str(r.get("negative_filters")),
+                "npi_match_suspicion": None,
+                "non_npi_match_suspicion": None,
+                "match_correct": None,
+                "corrected_profile_id": None,
+                "corrected_last_name": None,
+                "corrected_first_name": None,
+                "corrected_npi": None,
+                "notes": None,
+            }
+        )
         rows.append(row)
 
     cols = [c[0] for c in _match_sheet_specs(config)]
@@ -508,14 +513,16 @@ def _build_match_rows(
     if npi_matches:
         out["npi_match_suspicion"] = out.apply(
             lambda r: classify_npi_match_suspicion(
-                r, source_specialty_col=config.specialty_display_col,
+                r,
+                source_specialty_col=config.specialty_display_col,
             ),
             axis=1,
         )
     else:
         out["non_npi_match_suspicion"] = out.apply(
             lambda r: classify_non_npi_match_suspicion(
-                r, source_specialty_col=config.specialty_display_col,
+                r,
+                source_specialty_col=config.specialty_display_col,
             ),
             axis=1,
         )
@@ -562,13 +569,15 @@ def _build_unmatched_rows(
             if val is None or (isinstance(val, float) and pd.isna(val)):
                 val = _read_source_field(c_row, f_, source="conflicts")
             row[f_.display_label] = val
-        row.update({
-            "found_profile_id": None,
-            "found_last_name": None,
-            "found_first_name": None,
-            "found_npi": None,
-            "notes": None,
-        })
+        row.update(
+            {
+                "found_profile_id": None,
+                "found_last_name": None,
+                "found_first_name": None,
+                "found_npi": None,
+                "notes": None,
+            }
+        )
         rows.append(row)
 
     return pd.DataFrame(rows, columns=cols)
@@ -587,11 +596,10 @@ def _build_collision_rows(
 
     # Which source labels we include on this sheet (matches _collisions_sheet_specs)
     desired_labels = {
-        f"{config.entity_name}: {s}" for s in ("Last Name", "First Name", "School", "Specialty", "NPI")
+        f"{config.entity_name}: {s}"
+        for s in ("Last Name", "First Name", "School", "Specialty", "NPI")
     }
-    relevant_fields = [
-        f_ for f_ in config.source_fields if f_.display_label in desired_labels
-    ]
+    relevant_fields = [f_ for f_ in config.source_fields if f_.display_label in desired_labels]
 
     rows = []
     for pid in colliding:
@@ -604,17 +612,19 @@ def _build_collision_rows(
             }
             for f_ in relevant_fields:
                 row[f_.display_label] = _read_source_field(r, f_, source="matched")
-            row.update({
-                "CMS: Last Name": r.get("last_name"),
-                "CMS: First Name": r.get("first_name"),
-                "CMS: Specialty": _extract_first_specialty(r.get("specialtys")),
-                "CMS: NPI": _safe_int(r.get("npi")),
-                "confidence_tier": r.get("confidence_tier"),
-                "positive_filters": _filters_repr_to_str(r.get("filters")),
-                "pair_correct": None,
-                "corrected_profile_id": None,
-                "notes": None,
-            })
+            row.update(
+                {
+                    "CMS: Last Name": r.get("last_name"),
+                    "CMS: First Name": r.get("first_name"),
+                    "CMS: Specialty": _extract_first_specialty(r.get("specialtys")),
+                    "CMS: NPI": _safe_int(r.get("npi")),
+                    "confidence_tier": r.get("confidence_tier"),
+                    "positive_filters": _filters_repr_to_str(r.get("filters")),
+                    "pair_correct": None,
+                    "corrected_profile_id": None,
+                    "notes": None,
+                }
+            )
             rows.append(row)
 
     cols = [c[0] for c in _collisions_sheet_specs(config)]
@@ -624,6 +634,7 @@ def _build_collision_rows(
 # --------------------------------------------------------------------------
 # Helpers for CMS-side fields whose persisted form is a list-repr
 # --------------------------------------------------------------------------
+
 
 def _extract_first_specialty(specialtys_repr) -> Optional[str]:
     """Pull a human-readable specialty from a Specialtys list-repr string."""
@@ -667,6 +678,7 @@ def _extract_first_state(citystates_repr) -> Optional[str]:
 # --------------------------------------------------------------------------
 # LEGEND content (generic + config extras)
 # --------------------------------------------------------------------------
+
 
 def _build_legend_rows(config: ReviewConfig) -> pd.DataFrame:
     """Per-sheet documentation and reviewer instructions, templated to
@@ -802,6 +814,7 @@ def _build_legend_rows(config: ReviewConfig) -> pd.DataFrame:
 # Excel formatting wrappers
 # --------------------------------------------------------------------------
 
+
 def _apply_match_sheet_formatting(ws, config: ReviewConfig) -> None:
     """Section colors + dropdown + CMS hyperlink + suspicion warning cells."""
     apply_section_styling(ws, _match_sheet_specs(config))
@@ -828,10 +841,7 @@ def _paint_suspicion_cells(ws) -> None:
         if h is not None:
             header_to_idx[str(h)] = col_idx
 
-    targets = [
-        c for c in ("npi_match_suspicion", "non_npi_match_suspicion")
-        if c in header_to_idx
-    ]
+    targets = [c for c in ("npi_match_suspicion", "non_npi_match_suspicion") if c in header_to_idx]
     if not targets:
         return
     for col_name in targets:
@@ -845,6 +855,7 @@ def _paint_suspicion_cells(ws) -> None:
 # --------------------------------------------------------------------------
 # Main entrypoints
 # --------------------------------------------------------------------------
+
 
 def generate_review_template(
     matched_path: str,
@@ -905,21 +916,19 @@ def generate_review_template(
                 continue
             keep = ["provider_pk"] + [c for c in keep_cols if c in prior.columns]
             prior = prior[keep].dropna(subset=["provider_pk"])
-            prior["provider_pk"] = pd.to_numeric(
-                prior["provider_pk"], errors="coerce"
-            ).astype("Int64")
-            dropped = current_df.drop(
-                columns=[c for c in keep_cols if c in current_df.columns]
+            prior["provider_pk"] = pd.to_numeric(prior["provider_pk"], errors="coerce").astype(
+                "Int64"
             )
-            dropped["provider_pk"] = pd.to_numeric(
-                dropped["provider_pk"], errors="coerce"
-            ).astype("Int64")
+            dropped = current_df.drop(columns=[c for c in keep_cols if c in current_df.columns])
+            dropped["provider_pk"] = pd.to_numeric(dropped["provider_pk"], errors="coerce").astype(
+                "Int64"
+            )
             merged = dropped.merge(prior, on="provider_pk", how="left")
             for outcome_col in ("match_correct", "pair_correct"):
                 if outcome_col in merged.columns:
-                    merged[outcome_col] = merged[outcome_col].apply(
-                        _normalize_outcome_to_string
-                    ).astype("object")
+                    merged[outcome_col] = (
+                        merged[outcome_col].apply(_normalize_outcome_to_string).astype("object")
+                    )
             if sheet_name == "NPI_matches":
                 npi_df = merged
             elif sheet_name == "non_NPI_matches":
@@ -930,13 +939,13 @@ def generate_review_template(
     # Defensive: normalize match_correct / pair_correct to strings
     for df_ in (npi_df, non_npi_df):
         if "match_correct" in df_.columns:
-            df_["match_correct"] = df_["match_correct"].apply(
-                _normalize_outcome_to_string
-            ).astype("object")
+            df_["match_correct"] = (
+                df_["match_correct"].apply(_normalize_outcome_to_string).astype("object")
+            )
     if "pair_correct" in coll_df.columns:
-        coll_df["pair_correct"] = coll_df["pair_correct"].apply(
-            _normalize_outcome_to_string
-        ).astype("object")
+        coll_df["pair_correct"] = (
+            coll_df["pair_correct"].apply(_normalize_outcome_to_string).astype("object")
+        )
 
     # Write
     logger.info(f"Writing {output_path}")
@@ -1007,10 +1016,6 @@ def apply_review(
     """
     logger.info(f"Reading auto-match output: {matched_path}")
     matched_df = pd.read_excel(matched_path, sheet_name=matched_sheet_name)
-    try:
-        auto_unmatched_df = pd.read_excel(matched_path, sheet_name=unmatched_sheet_name)
-    except (ValueError, KeyError):
-        auto_unmatched_df = pd.DataFrame()
 
     logger.info(f"Reading review: {review_path}")
     review_sheets = {}
@@ -1142,30 +1147,34 @@ def apply_review(
     for pk, (state, payload) in final.items():
         if state in ("matched", "unreviewed"):
             if pk in matched_by_pk.index:
-                src = matched_by_pk.loc[pk].copy() if not isinstance(
-                    matched_by_pk.loc[pk], pd.DataFrame
-                ) else matched_by_pk.loc[pk].iloc[0].copy()
+                src = (
+                    matched_by_pk.loc[pk].copy()
+                    if not isinstance(matched_by_pk.loc[pk], pd.DataFrame)
+                    else matched_by_pk.loc[pk].iloc[0].copy()
+                )
                 src["provider_pk"] = pk
                 src["profile_id"] = payload
-                src["reviewed"] = (state == "matched")
+                src["reviewed"] = state == "matched"
                 final_matched_rows.append(src)
             else:
-                final_matched_rows.append(pd.Series({
-                    "provider_pk": pk,
-                    "profile_id": payload,
-                    "reviewed": True,
-                    "source": "reviewer-supplied (was unmatched)",
-                }))
+                final_matched_rows.append(
+                    pd.Series(
+                        {
+                            "provider_pk": pk,
+                            "profile_id": payload,
+                            "reviewed": True,
+                            "source": "reviewer-supplied (was unmatched)",
+                        }
+                    )
+                )
 
-    final_matched_df = (
-        pd.DataFrame(final_matched_rows) if final_matched_rows else pd.DataFrame()
-    )
+    final_matched_df = pd.DataFrame(final_matched_rows) if final_matched_rows else pd.DataFrame()
     unmatched_after = pd.DataFrame(no_cms_match_pks)
     unreviewed_df = pd.DataFrame(unreviewed_rows)
 
     logger.info(
         f"Apply outcome: matched={len(final_matched_df)} "
-        f"(reviewed={sum(1 for s in final.values() if s[0]=='matched')}, "
+        f"(reviewed={sum(1 for s in final.values() if s[0] == 'matched')}, "
         f"unreviewed={len(unreviewed_df)}), "
         f"unmatched_after_review={len(unmatched_after)}, "
         f"new pids needing refetch={len(refetch_pids)}"
@@ -1192,6 +1201,7 @@ def apply_review(
 # --------------------------------------------------------------------------
 # Refetch payments for new profile_ids
 # --------------------------------------------------------------------------
+
 
 def refetch_payments_for_pids(
     needs_refetch_path: str,
@@ -1253,15 +1263,16 @@ def refetch_payments_for_pids(
     if not existing.empty and "Covered_Recipient_Profile_ID" in existing.columns:
         cached_pids = set(
             pd.to_numeric(existing["Covered_Recipient_Profile_ID"], errors="coerce")
-            .dropna().astype(int).tolist()
+            .dropna()
+            .astype(int)
+            .tolist()
         )
 
     canonical_pids: set[int] = set()
     if canonical_pids_path and os.path.exists(canonical_pids_path):
         canonical_df = pd.read_excel(canonical_pids_path, sheet_name=canonical_sheet_name)
         canonical_pids = set(
-            pd.to_numeric(canonical_df["profile_id"], errors="coerce")
-            .dropna().astype(int).tolist()
+            pd.to_numeric(canonical_df["profile_id"], errors="coerce").dropna().astype(int).tolist()
         )
         missing_from_cache = canonical_pids - cached_pids
         if missing_from_cache:
@@ -1277,6 +1288,7 @@ def refetch_payments_for_pids(
     all_new = []
     if pids_to_fetch:
         from .payments import PaymentsSearch
+
         pid_df = pd.DataFrame({"profile_id": pd.Series(sorted(pids_to_fetch), dtype="Int64")})
         for year in years:
             logger.info(f"  Searching {payment_class} payments for year {year}...")
@@ -1311,9 +1323,7 @@ def refetch_payments_for_pids(
         combined["Covered_Recipient_Profile_ID"] = pd.to_numeric(
             combined["Covered_Recipient_Profile_ID"], errors="coerce"
         )
-        combined = combined[
-            combined["Covered_Recipient_Profile_ID"].isin(canonical_pids)
-        ].copy()
+        combined = combined[combined["Covered_Recipient_Profile_ID"].isin(canonical_pids)].copy()
         after = len(combined)
         dropped = before - after
         if dropped > 0:
@@ -1350,6 +1360,5 @@ def refetch_payments_for_pids(
         else 0.0
     )
     logger.info(
-        f"Updated {payments_xlsx_path}: payments now total {final_count:,} "
-        f"(${final_dollars:,.2f})"
+        f"Updated {payments_xlsx_path}: payments now total {final_count:,} (${final_dollars:,.2f})"
     )

@@ -752,7 +752,11 @@ def test__ties_are_unmatched_surfaces_all_candidates_as_unmatched_options():
             ),
             _make_payments_x_conflicted_row(
                 profile_id=102,
-                filters=[PaymentFilters.LASTNAME, PaymentFilters.FIRSTNAME, PaymentFilters.SPECIALTY],
+                filters=[
+                    PaymentFilters.LASTNAME,
+                    PaymentFilters.FIRSTNAME,
+                    PaymentFilters.SPECIALTY,
+                ],
             ),
         ]
     )

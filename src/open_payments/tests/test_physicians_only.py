@@ -1,11 +1,14 @@
 import unittest
 
 import pandas as pd
+import pytest
 
 from ..credentials import Credentials, CredentialsMixin
 from ..physicians_only import PhysicianFilter
 from ..read import ReadPayments
 from ..specialtys import SpecialtysMixin
+
+pytestmark = pytest.mark.integration
 
 
 class SpecialtyCredentialReader(SpecialtysMixin, CredentialsMixin, ReadPayments):

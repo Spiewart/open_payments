@@ -25,6 +25,7 @@ so summary tables sort the same way as the matcher's own labels. If a
 study customizes ``TieredConfidenceSelector.TIER_RULES``, pass a matching
 ``tier_order`` to :func:`tier_summary`.
 """
+
 from __future__ import annotations
 
 import re
@@ -33,15 +34,12 @@ from typing import Optional
 import pandas as pd
 
 from .selectors import (
-    DEFAULT_TIER_RULES,
     DEFAULT_FALLBACK_TIER,
+    DEFAULT_TIER_RULES,
 )
 
-
 # Default tier ordering for sort stability — matches DEFAULT_TIER_RULES.
-DEFAULT_TIER_ORDER: list[str] = [name for name, _ in DEFAULT_TIER_RULES] + [
-    DEFAULT_FALLBACK_TIER
-]
+DEFAULT_TIER_ORDER: list[str] = [name for name, _ in DEFAULT_TIER_RULES] + [DEFAULT_FALLBACK_TIER]
 
 
 _FILTER_VALUE_RE = re.compile(r"'([A-Z_]+)'")
@@ -176,9 +174,7 @@ def tier_summary(
     """
     total = len(matched_df)
     if total == 0 or tier_column not in matched_df.columns:
-        return pd.DataFrame(
-            columns=[tier_column, "count", "pct_of_matches"]
-        )
+        return pd.DataFrame(columns=[tier_column, "count", "pct_of_matches"])
     df = matched_df[[tier_column]].copy()
     df[tier_column] = df[tier_column].fillna("(no tier)")
     summary = df.groupby(tier_column).size().reset_index(name="count")
@@ -186,12 +182,8 @@ def tier_summary(
     order = list(tier_order) if tier_order is not None else list(DEFAULT_TIER_ORDER)
     if "(no tier)" not in order:
         order = order + ["(no tier)"]
-    summary["_rank"] = summary[tier_column].map(
-        lambda t: order.index(t) if t in order else 999
-    )
-    summary = (
-        summary.sort_values("_rank").drop(columns=["_rank"]).reset_index(drop=True)
-    )
+    summary["_rank"] = summary[tier_column].map(lambda t: order.index(t) if t in order else 999)
+    summary = summary.sort_values("_rank").drop(columns=["_rank"]).reset_index(drop=True)
     return summary
 
 
@@ -270,17 +262,13 @@ def profile_id_collisions(
             f"{source_pk_column}s": ", ".join(
                 map(
                     str,
-                    sorted(
-                        subset[source_pk_column].dropna().astype(int).tolist()
-                    ),
+                    sorted(subset[source_pk_column].dropna().astype(int).tolist()),
                 )
             ),
         }
         for col in source_label_columns:
             if col in subset.columns:
-                row[f"{col}s"] = " | ".join(
-                    subset[col].astype(str).fillna("").tolist()
-                )
+                row[f"{col}s"] = " | ".join(subset[col].astype(str).fillna("").tolist())
         if "filters" in subset.columns:
             row["filters"] = " || ".join(subset["filters"].astype(str).tolist())
         row["_worst_rank"] = worst_rank
@@ -288,9 +276,7 @@ def profile_id_collisions(
 
     return (
         pd.DataFrame(rows)
-        .sort_values(
-            ["_worst_rank", "match_count"], ascending=[False, False]
-        )
+        .sort_values(["_worst_rank", "match_count"], ascending=[False, False])
         .drop(columns=["_worst_rank"])
         .reset_index(drop=True)
     )

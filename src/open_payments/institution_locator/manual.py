@@ -31,7 +31,6 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
-import openpyxl
 import pandas as pd
 
 from .types import CandidateLocation
@@ -68,25 +67,29 @@ class ManualReviewBackend:
             prior = existing.get(institution, [])
             usable = [c for c in prior if c.source != "miss"]
             if not usable:
-                rows.append({
-                    "institution": institution,
-                    "city": None,
-                    "state": None,
-                    "notes": None,
-                })
+                rows.append(
+                    {
+                        "institution": institution,
+                        "city": None,
+                        "state": None,
+                        "notes": None,
+                    }
+                )
                 continue
             for candidate in usable:
-                rows.append({
-                    "institution": institution,
-                    "city": candidate.city,
-                    "state": candidate.state,
-                    "notes": f"prior {candidate.source}"
-                    + (
-                        f" conf={candidate.confidence:.2f}"
-                        if candidate.confidence is not None
-                        else ""
-                    ),
-                })
+                rows.append(
+                    {
+                        "institution": institution,
+                        "city": candidate.city,
+                        "state": candidate.state,
+                        "notes": f"prior {candidate.source}"
+                        + (
+                            f" conf={candidate.confidence:.2f}"
+                            if candidate.confidence is not None
+                            else ""
+                        ),
+                    }
+                )
 
         df = pd.DataFrame(rows, columns=list(REVIEW_COLUMNS))
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
