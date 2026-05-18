@@ -50,7 +50,29 @@ class PhysicianFilter:
         by checking the specialty and credential columns.
         Returns rows that have either:
         1. A specialty of 'Allopathic & Osteopathic Physicians'
-        2. A credential of 'Medical Doctor' or 'Doctor of Osteopathy'"""
+        2. A credential of 'Medical Doctor' or 'Doctor of Osteopathy'
+
+        Fail-open contract: if NEITHER any credential column NOR any
+        specialty column is present in the input DataFrame, we cannot
+        decide who's an MD/DO and return the input unchanged. Returning
+        zero rows on missing columns silently drops the entire dataset —
+        the worst-of-all-worlds outcome. This typically fires when a
+        caller uses ``usecols`` to read only a subset of CMS columns
+        (e.g. ``PaymentsSearch``) that doesn't include
+        ``Covered_Recipient_Primary_Type_*`` or
+        ``Covered_Recipient_Specialty_*``. Callers that want strict
+        filtering should either include those columns in their usecols
+        set or skip the filter entirely (``MD_DO_only=False``).
+        """
+        specialty_cols = self.get_specialty_filter_columns()
+        credential_cols = self.get_credential_filter_columns()
+        if not specialty_cols and not credential_cols:
+            logging.warning(
+                "PhysicianFilter: no credential or specialty columns present "
+                "in input — passing through %d row(s) unfiltered.",
+                len(self.payments),
+            )
+            return self.payments
 
         logging.info(
             "Filtering payments for MDs and DOs based on specialty and credential columns..."

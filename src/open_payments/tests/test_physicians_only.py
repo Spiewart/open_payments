@@ -195,3 +195,48 @@ class TestPhysiciansFilter(unittest.TestCase):
             2,
             "Fake data should have two rows with 'Medical Doctor' or 'Doctor of Osteopathy' credentials",
         )
+
+    def test__fail_open_when_no_credential_or_specialty_columns(self):
+        """PhysicianFilter must pass through unfiltered when neither
+        credential nor specialty columns are present in the input.
+
+        Real-world trigger: PaymentsSearch loads CMS CSVs with usecols
+        restricted to its needs (profile_id, amount, names, payment_type,
+        entities) — which excludes Covered_Recipient_Primary_Type_* /
+        Covered_Recipient_Specialty_*. Before the fail-open fix, the
+        filter silently returned 0 rows in that case, breaking the entire
+        payment-stats pipeline. Now it returns the input unchanged with
+        a warning log.
+        """
+        # Build a minimal DataFrame with NONE of the
+        # potential_credential_columns or potential_specialty_columns.
+        no_filter_cols_df = pd.DataFrame(
+            {
+                "Covered_Recipient_Profile_ID": [123456, 789012, 345678],
+                "Total_Amount_of_Payment_USDollars": [100.0, 200.0, 50.0],
+            }
+        )
+        result = PhysicianFilter(no_filter_cols_df).filter()
+        # Pass-through: all three rows survive.
+        self.assertEqual(len(result), 3)
+        pd.testing.assert_frame_equal(result, no_filter_cols_df)
+
+    def test__filters_normally_when_at_least_one_filter_column_present(self):
+        """Fail-open should NOT trigger when EITHER specialty OR
+        credential columns exist — we should still filter on what we have.
+        """
+        # Specialty column present, no credential cols.
+        only_specialty_df = pd.DataFrame(
+            {
+                "Covered_Recipient_Profile_ID": [1, 2, 3],
+                "Covered_Recipient_Specialty_1": [
+                    "Allopathic & Osteopathic Physicians/Internal Medicine",
+                    "Dentist/Endodontics",
+                    "Allopathic & Osteopathic Physicians/Cardiology",
+                ],
+            }
+        )
+        result = PhysicianFilter(only_specialty_df).filter()
+        # Rows 0 and 2 match the MD/DO specialty; row 1 does not.
+        self.assertEqual(len(result), 2)
+        self.assertEqual(set(result["Covered_Recipient_Profile_ID"]), {1, 3})
