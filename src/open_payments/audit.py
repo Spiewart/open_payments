@@ -280,3 +280,244 @@ def profile_id_collisions(
         .drop(columns=["_worst_rank"])
         .reset_index(drop=True)
     )
+
+
+# ---------------------------------------------------------------------------
+# Payment-magnitude aggregations (Phase 2, lifted from abim_conflicts)
+# ---------------------------------------------------------------------------
+#
+# These functions consume a payments DataFrame as produced by
+# :class:`PaymentsSearch.all_payments` — i.e. the matcher's filtered-and-
+# renamed payment rows for a set of conflicted profile_ids. Column-name
+# contract:
+#   profile_id, payment_class, amount, year, nature, payment_entity, ...
+#
+# Why not :class:`DescribePayments`: that class references the unrenamed
+# CMS source columns (``Total_Amount_of_Payment_USDollars``,
+# ``Program_Year``) and ``KeyError``s on first call. These functions are
+# the working replacement. ``DescribePayments`` is now a deprecated thin
+# shim over them.
+
+
+def _na_safe_float(value) -> float:
+    """Coerce pandas nullable NA (``pd.NA`` / NAType) to ``0.0``.
+
+    ``PaymentsSearch`` declares the ``amount`` column as ``Float64``
+    (nullable). Reductions over an all-NA or partial-NA slice can produce
+    ``pd.NA``, which ``float()`` raises on. This wrapper unwraps cleanly
+    for the per-slice aggregations below.
+    """
+    try:
+        if pd.isna(value):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    return float(value)
+
+
+def aggregate_payments(payments: pd.DataFrame) -> dict[str, float | int]:
+    """Compute six core magnitude stats from a (possibly empty) payments slice.
+
+    Designed for repeated calling over per-year / per-class / per-type
+    subsets — returns a flat dict that the slicing helpers below splat
+    into row dicts before building a summary DataFrame.
+
+    Keys:
+      n_payments — row count.
+      n_providers_with_payment — unique profile_ids with ≥1 row.
+      total_amount — sum of ``amount`` (NA-safe).
+      mean_per_payment — mean of ``amount`` (NA-safe).
+      median_per_payment — median of ``amount`` (NA-safe).
+      p90_per_provider — 90th percentile of per-provider total dollars.
+        Surfaces outlier-heavy tail (median = typical case; p90 = how
+        big the upper tail is).
+    """
+    if payments.empty:
+        return {
+            "n_payments": 0,
+            "n_providers_with_payment": 0,
+            "total_amount": 0.0,
+            "mean_per_payment": 0.0,
+            "median_per_payment": 0.0,
+            "p90_per_provider": 0.0,
+        }
+    per_provider = payments.groupby("profile_id")["amount"].sum()
+    return {
+        "n_payments": int(len(payments)),
+        "n_providers_with_payment": int(payments["profile_id"].nunique()),
+        "total_amount": _na_safe_float(payments["amount"].sum()),
+        "mean_per_payment": _na_safe_float(payments["amount"].mean()),
+        "median_per_payment": _na_safe_float(payments["amount"].median()),
+        "p90_per_provider": _na_safe_float(per_provider.quantile(0.90)),
+    }
+
+
+def summary_overall(
+    payments: pd.DataFrame,
+    matched_n: int,
+) -> pd.DataFrame:
+    """One-row top-line summary across all years and payment classes.
+
+    ``matched_n`` is the count of source-side providers that matched any
+    CMS profile_id — used to compute ``pct_matched_with_payment``
+    (i.e. of providers we found, how many received at least one payment).
+    """
+    stats = aggregate_payments(payments)
+    pct_with_payment = (
+        stats["n_providers_with_payment"] / matched_n * 100.0 if matched_n else 0.0
+    )
+    return pd.DataFrame(
+        [
+            {
+                "scope": "all_years_all_classes",
+                "matched_providers": matched_n,
+                **stats,
+                "pct_matched_with_payment": round(pct_with_payment, 1),
+            }
+        ]
+    )
+
+
+def summary_by_year(payments: pd.DataFrame) -> pd.DataFrame:
+    """One row per ``year`` value, sorted ascending."""
+    if payments.empty or "year" not in payments.columns:
+        return pd.DataFrame()
+    rows = []
+    for year in sorted(payments["year"].dropna().unique()):
+        rows.append(
+            {
+                "year": int(year),
+                **aggregate_payments(payments[payments["year"] == year]),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def summary_by_payment_class(payments: pd.DataFrame) -> pd.DataFrame:
+    """One row per ``payment_class`` (general / research / ownership)."""
+    if payments.empty or "payment_class" not in payments.columns:
+        return pd.DataFrame()
+    rows = []
+    for cls in sorted(payments["payment_class"].dropna().unique()):
+        rows.append(
+            {
+                "payment_class": cls,
+                **aggregate_payments(payments[payments["payment_class"] == cls]),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def summary_by_payment_type(payments: pd.DataFrame) -> pd.DataFrame:
+    """One row per ``nature`` value (Nature_of_Payment_or_Transfer_of_Value).
+
+    Most compliance-actionable breakdown: distinguishes consulting fees
+    (high-fiduciary), food/beverage (low-fiduciary), royalties (the real
+    money), etc. Rows with null ``nature`` are bucketed as
+    ``"(unspecified)"`` rather than dropped — typically these are research
+    payments, where CMS doesn't carry a nature column.
+
+    Sorted by ``total_amount`` descending: consulting on top even when
+    food/beverage has more rows, because dollar magnitude is the
+    relevant signal here.
+    """
+    cols = [
+        "nature",
+        "n_payments",
+        "n_providers_with_payment",
+        "total_amount",
+        "mean_per_payment",
+    ]
+    if payments.empty or "nature" not in payments.columns:
+        return pd.DataFrame(columns=cols)
+    df = payments.copy()
+    df["nature"] = df["nature"].fillna("(unspecified)")
+    rows = []
+    for nature in df["nature"].unique():
+        slice_ = df[df["nature"] == nature]
+        agg = aggregate_payments(slice_)
+        rows.append(
+            {
+                "nature": nature,
+                "n_payments": agg["n_payments"],
+                "n_providers_with_payment": agg["n_providers_with_payment"],
+                "total_amount": agg["total_amount"],
+                "mean_per_payment": agg["mean_per_payment"],
+            }
+        )
+    return (
+        pd.DataFrame(rows, columns=cols)
+        .sort_values("total_amount", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def top_providers_by_amount(
+    payments: pd.DataFrame,
+    matched_df: pd.DataFrame,
+    *,
+    top_n: int = 25,
+    keep_cols: Optional[list[str]] = None,
+) -> pd.DataFrame:
+    """Top providers by total payment dollars (any class, any year).
+
+    Joins back to ``matched_df`` for identifying info so reviewers can
+    spot risky-tier providers contributing outsized dollars.
+
+    ``keep_cols`` is the list of matched_df columns to surface alongside
+    profile_id / n_payments / total_amount. Defaults to a standard set
+    (``provider_pk``, ``conflict_first_name``, ``last_name``,
+    ``confidence_tier``, ``filters``) — any that are missing from the
+    matched_df are silently dropped. Study-specific wrappers can pass an
+    extended list to surface additional source-side context.
+    """
+    if payments.empty:
+        return pd.DataFrame()
+    if keep_cols is None:
+        keep_cols = [
+            "provider_pk",
+            "conflict_first_name",
+            "last_name",
+            "confidence_tier",
+            "filters",
+        ]
+    per_provider = (
+        payments.groupby("profile_id")
+        .agg(
+            n_payments=("amount", "count"),
+            total_amount=("amount", "sum"),
+        )
+        .reset_index()
+        .sort_values("total_amount", ascending=False)
+        .head(top_n)
+    )
+    join_cols = ["profile_id"] + [c for c in keep_cols if c in matched_df.columns]
+    src = matched_df.dropna(subset=["profile_id"])[join_cols].drop_duplicates("profile_id")
+    return per_provider.merge(src, on="profile_id", how="left")
+
+
+def top_payers_by_amount(
+    payments: pd.DataFrame,
+    *,
+    top_n: int = 25,
+) -> pd.DataFrame:
+    """Top payment-making entities by total dollars across the matched providers.
+
+    Uses ``payment_entity`` (the company that actually made the payment)
+    rather than ``submitting_entity`` (the report submitter) — usually
+    the same, but ``payment_entity`` is closer to the conflict-of-interest
+    intuition.
+    """
+    if payments.empty or "payment_entity" not in payments.columns:
+        return pd.DataFrame()
+    return (
+        payments.groupby("payment_entity")
+        .agg(
+            n_payments=("amount", "count"),
+            n_providers=("profile_id", "nunique"),
+            total_amount=("amount", "sum"),
+        )
+        .reset_index()
+        .sort_values("total_amount", ascending=False)
+        .head(top_n)
+    )
