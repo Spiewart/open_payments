@@ -21,6 +21,9 @@ venv/
 .pytest_cache/
 .mypy_cache/
 
+# Claude Code per-developer state (worktree storage + local permissions)
+.claude/
+
 # Coverage
 .coverage
 htmlcov/
